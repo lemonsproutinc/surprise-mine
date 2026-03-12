@@ -57,21 +57,24 @@ export default function Preferences() {
     if (!user) return
     setLoading(true)
 
-    await supabase.from('user_preferences').upsert({
-      user_id: user.id,
-      question_intensity: intensity,
-      question_categories: categories,
-    })
+    try {
+      await supabase.from('user_preferences').upsert(
+        { user_id: user.id, question_intensity: intensity, question_categories: categories },
+        { onConflict: 'user_id' }
+      )
 
-    // Initialize streak record
-    await supabase.from('streaks').upsert({
-      user_id: user.id,
-      current_streak: 0,
-      longest_streak: 0,
-    })
+      // Initialize streak record
+      await supabase.from('streaks').upsert(
+        { user_id: user.id, current_streak: 0, longest_streak: 0 },
+        { onConflict: 'user_id' }
+      )
+    } catch (err) {
+      console.error('Failed to save preferences:', err)
+    } finally {
+      setLoading(false)
+    }
 
-    await refreshProfile()
-    setLoading(false)
+    refreshProfile() // fire-and-forget — don't block navigation
     navigate('/home')
   }
 
