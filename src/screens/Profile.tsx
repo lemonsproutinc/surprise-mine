@@ -1,15 +1,26 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../hooks/useAuth'
+import { supabase } from '../lib/supabase'
 import { RELATIONSHIP_STAGES } from '../types'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
 import { format, parseISO } from 'date-fns'
 
 export default function Profile() {
-  const { profile, partnerProfile, couple, totalHearts, currentStreak, signOut } = useAuth()
+  const { profile, partnerProfile, couple, totalHearts, currentStreak, signOut, linkPartner, refreshProfile } = useAuth()
   const [copied, setCopied] = useState(false)
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
+  const [showDateModal, setShowDateModal] = useState(false)
+  const [relationshipDate, setRelationshipDate] = useState(profile?.relationship_start_date ?? '')
+  const [savingDate, setSavingDate] = useState(false)
+
+  // Partner code linking
+  const [partnerCode, setPartnerCode] = useState('')
+  const [linkingPartner, setLinkingPartner] = useState(false)
+  const [linkError, setLinkError] = useState('')
+  const [linkSuccess, setLinkSuccess] = useState(false)
 
   const handleCopyCode = () => {
     if (profile?.invite_code) {
@@ -17,6 +28,35 @@ export default function Profile() {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
+  }
+
+  const handleLinkPartner = async () => {
+    if (!partnerCode.trim()) return
+    setLinkingPartner(true)
+    setLinkError('')
+
+    const { error } = await linkPartner(partnerCode)
+    if (error) {
+      setLinkError(error)
+    } else {
+      setLinkSuccess(true)
+      setPartnerCode('')
+    }
+    setLinkingPartner(false)
+  }
+
+  const handleSaveDate = async () => {
+    if (!profile || !relationshipDate) return
+    setSavingDate(true)
+
+    await supabase
+      .from('profiles')
+      .update({ relationship_start_date: relationshipDate })
+      .eq('id', profile.id)
+
+    await refreshProfile()
+    setSavingDate(false)
+    setShowDateModal(false)
   }
 
   const stageInfo = RELATIONSHIP_STAGES.find(s => s.value === profile?.relationship_stage)
@@ -37,6 +77,10 @@ export default function Profile() {
     if (totalHearts >= 50) return { label: 'Budding', emoji: '🌱' }
     return { label: 'New Couple', emoji: '🌸' }
   })()
+
+  const togetherSinceDisplay = profile?.relationship_start_date
+    ? format(parseISO(profile.relationship_start_date), 'MMMM d, yyyy')
+    : null
 
   return (
     <div className="min-h-screen bg-background px-4 pt-6 pb-6">
@@ -59,13 +103,9 @@ export default function Profile() {
               </p>
             </div>
             <div className="flex flex-col items-center">
-              <motion.div
-                animate={{ scale: [1, 1.2, 1] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="text-3xl"
-              >
+              <div className="text-3xl animate-pulse-heart">
                 ❤️
-              </motion.div>
+              </div>
               {stageInfo && (
                 <span className="text-xs font-body font-bold text-white/70 mt-1">
                   {stageInfo.emoji} {stageInfo.label}
@@ -81,19 +121,123 @@ export default function Profile() {
               </p>
             </div>
           </div>
-          {couple && (
-            <p className="text-center text-white/70 text-xs font-body">
-              Together since {format(parseISO(couple.created_at), 'MMMM d, yyyy')}
-            </p>
-          )}
+
+          {/* Together since */}
+          <div className="text-center">
+            {togetherSinceDisplay ? (
+              <button
+                onClick={() => setShowDateModal(true)}
+                className="text-white/70 text-xs font-body hover:text-white/90 transition-colors"
+              >
+                Together since {togetherSinceDisplay} ✏️
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowDateModal(true)}
+                className="text-white/70 text-xs font-body hover:text-white/90 transition-colors underline underline-offset-2"
+              >
+                Set your anniversary date ✏️
+              </button>
+            )}
+          </div>
         </div>
+      </motion.div>
+
+      {/* Partner code section */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+        className="mb-4"
+      >
+        {!couple ? (
+          <Card className="border-2 border-dashed border-primary/40">
+            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">
+              Connect With Your Partner
+            </p>
+
+            {/* Your invite code */}
+            {profile?.invite_code && (
+              <div className="mb-4">
+                <p className="text-xs text-muted font-body mb-1">Your invite code:</p>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-accent text-2xl font-bold text-dark tracking-widest">
+                    {profile.invite_code}
+                  </span>
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleCopyCode}
+                    className="bg-primary/10 rounded-xl px-3 py-1.5 font-body font-bold text-primary text-sm"
+                  >
+                    {copied ? '✅ Copied!' : '📋 Copy'}
+                  </motion.button>
+                </div>
+                <p className="text-xs text-muted font-body mt-1">
+                  Share this with your partner so they can join!
+                </p>
+              </div>
+            )}
+
+            {/* Enter partner's code */}
+            <div className="border-t border-surface pt-3">
+              <p className="text-xs text-muted font-body mb-2">Or enter your partner's code:</p>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <Input
+                    placeholder="e.g. LOVE-7X3K"
+                    value={partnerCode}
+                    onChange={e => setPartnerCode(e.target.value.toUpperCase())}
+                    icon="🔑"
+                  />
+                </div>
+                <Button
+                  onClick={handleLinkPartner}
+                  loading={linkingPartner}
+                  variant="gradient"
+                  className="self-end"
+                  size="md"
+                >
+                  Connect
+                </Button>
+              </div>
+              {linkError && (
+                <p className="text-xs text-red-500 font-body mt-1">{linkError}</p>
+              )}
+              {linkSuccess && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-xs text-success font-body font-bold mt-1"
+                >
+                  ✅ Partner connected successfully!
+                </motion.p>
+              )}
+            </div>
+          </Card>
+        ) : (
+          <Card>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">💕</span>
+              <div className="flex-1">
+                <p className="font-body font-bold text-dark text-sm">
+                  Partnered with {partnerProfile?.name ?? 'your partner'}
+                </p>
+                {profile?.invite_code && (
+                  <p className="text-xs text-muted font-body mt-0.5">
+                    Your code: {profile.invite_code}
+                  </p>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
       </motion.div>
 
       {/* Hearts & Level */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.1 }}
+        transition={{ delay: 0.05 }}
         className="mb-4"
       >
         <Card>
@@ -122,7 +266,7 @@ export default function Profile() {
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.15 }}
+        transition={{ delay: 0.05 }}
         className="grid grid-cols-2 gap-3 mb-4"
       >
         <Card padding="md" className="text-center">
@@ -137,42 +281,11 @@ export default function Profile() {
         </Card>
       </motion.div>
 
-      {/* Invite code (only if no partner yet) */}
-      {!couple && profile?.invite_code && (
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-4"
-        >
-          <Card className="border-2 border-dashed border-primary/40">
-            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">
-              Your Invite Code
-            </p>
-            <div className="flex items-center justify-between gap-3">
-              <span className="font-accent text-2xl font-bold text-dark tracking-widest">
-                {profile.invite_code}
-              </span>
-              <motion.button
-                whileTap={{ scale: 0.95 }}
-                onClick={handleCopyCode}
-                className="bg-primary/10 rounded-xl px-3 py-1.5 font-body font-bold text-primary text-sm"
-              >
-                {copied ? '✅ Copied!' : '📋 Copy'}
-              </motion.button>
-            </div>
-            <p className="text-xs text-muted font-body mt-1">
-              Share this with your partner so they can join!
-            </p>
-          </Card>
-        </motion.div>
-      )}
-
       {/* Hearts earning guide */}
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.25 }}
+        transition={{ delay: 0.05 }}
         className="mb-4"
       >
         <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">
@@ -199,25 +312,16 @@ export default function Profile() {
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
+        transition={{ delay: 0.05 }}
         className="mb-4"
       >
         <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Account</p>
         <Card padding="md">
-          <div className="flex items-center gap-3 py-2 border-b border-surface">
+          <div className="flex items-center gap-3 py-2">
             <span className="text-xl">📧</span>
             <div>
               <p className="text-xs text-muted font-body">Email</p>
               <p className="font-body font-semibold text-dark text-sm">{profile?.email}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 py-2">
-            <span className="text-xl">📅</span>
-            <div>
-              <p className="text-xs text-muted font-body">Member since</p>
-              <p className="font-body font-semibold text-dark text-sm">
-                {profile?.created_at ? format(parseISO(profile.created_at), 'MMMM d, yyyy') : '—'}
-              </p>
             </div>
           </div>
         </Card>
@@ -227,7 +331,7 @@ export default function Profile() {
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.35 }}
+        transition={{ delay: 0.05 }}
       >
         <Button
           size="lg"
@@ -275,6 +379,55 @@ export default function Profile() {
                   className="bg-red-400"
                 >
                   Sign Out
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Date picker modal */}
+      <AnimatePresence>
+        {showDateModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-dark/60 backdrop-blur-sm z-50 flex items-center justify-center px-6"
+            onClick={e => { if (e.target === e.currentTarget) setShowDateModal(false) }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-medium"
+            >
+              <div className="text-center mb-4">
+                <div className="text-4xl mb-2">💕</div>
+                <h3 className="font-display text-xl text-dark">Together Since</h3>
+                <p className="text-sm text-muted font-body mt-1">When did your relationship start?</p>
+              </div>
+              <Input
+                type="date"
+                value={relationshipDate}
+                onChange={e => setRelationshipDate(e.target.value)}
+              />
+              <div className="flex gap-3 mt-4">
+                <Button
+                  fullWidth
+                  variant="ghost"
+                  onClick={() => setShowDateModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  fullWidth
+                  variant="gradient"
+                  loading={savingDate}
+                  disabled={!relationshipDate}
+                  onClick={handleSaveDate}
+                >
+                  Save
                 </Button>
               </div>
             </motion.div>

@@ -26,45 +26,64 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!user || !couple) { setLoading(false); return }
+    if (!user) { setLoading(false); return }
     loadHomeData()
   }, [user, couple])
 
   const loadHomeData = async () => {
-    if (!user || !couple) return
+    if (!user) return
 
     const today = new Date().toISOString().split('T')[0]
 
-    // Load or create today's daily question
-    let { data: dq } = await supabase
-      .from('daily_questions')
-      .select('*, question:question_id(*)')
-      .eq('couple_id', couple.id)
-      .eq('assigned_date', today)
-      .single()
+    // Load today's daily question (couple or solo mode)
+    let dq: DailyQuestion | null = null
 
-    if (!dq) {
-      // Assign a random question not used recently
-      const { data: questions } = await supabase
-        .from('questions')
-        .select('id')
-        .limit(100)
+    if (couple) {
+      const { data } = await supabase
+        .from('daily_questions')
+        .select('*, question:question_id(*)')
+        .eq('couple_id', couple.id)
+        .eq('assigned_date', today)
+        .single()
+      dq = data
 
-      if (questions && questions.length > 0) {
-        const randomQ = questions[Math.floor(Math.random() * questions.length)]
-        const { data: newDq } = await supabase
-          .from('daily_questions')
-          .insert({ couple_id: couple.id, question_id: randomQ.id, assigned_date: today })
-          .select('*, question:question_id(*)')
-          .single()
-        dq = newDq
+      if (!dq) {
+        const { data: questions } = await supabase.from('questions').select('id').limit(100)
+        if (questions && questions.length > 0) {
+          const randomQ = questions[Math.floor(Math.random() * questions.length)]
+          const { data: newDq } = await supabase
+            .from('daily_questions')
+            .insert({ couple_id: couple.id, question_id: randomQ.id, assigned_date: today })
+            .select('*, question:question_id(*)')
+            .single()
+          dq = newDq
+        }
+      }
+    } else {
+      const { data } = await supabase
+        .from('daily_questions')
+        .select('*, question:question_id(*)')
+        .eq('user_id', user.id)
+        .eq('assigned_date', today)
+        .single()
+      dq = data
+
+      if (!dq) {
+        const { data: questions } = await supabase.from('questions').select('id').limit(100)
+        if (questions && questions.length > 0) {
+          const randomQ = questions[Math.floor(Math.random() * questions.length)]
+          const { data: newDq } = await supabase
+            .from('daily_questions')
+            .insert({ user_id: user.id, question_id: randomQ.id, assigned_date: today })
+            .select('*, question:question_id(*)')
+            .single()
+          dq = newDq
+        }
       }
     }
 
     if (dq) {
       setDailyQuestion(dq)
-
-      // Load answers
       const { data: answers } = await supabase
         .from('question_answers')
         .select('*')
@@ -89,15 +108,25 @@ export default function Home() {
     setPendingGifts(gifts ?? [])
 
     // Load upcoming milestones
-    const { data: milestones } = await supabase
-      .from('milestones')
-      .select('*')
-      .eq('couple_id', couple.id)
-      .gte('milestone_date', today)
-      .order('milestone_date', { ascending: true })
-      .limit(3)
-
-    setUpcomingMilestones(milestones ?? [])
+    if (couple) {
+      const { data: milestones } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('couple_id', couple.id)
+        .gte('milestone_date', today)
+        .order('milestone_date', { ascending: true })
+        .limit(3)
+      setUpcomingMilestones(milestones ?? [])
+    } else {
+      const { data: milestones } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('created_by', user.id)
+        .gte('milestone_date', today)
+        .order('milestone_date', { ascending: true })
+        .limit(3)
+      setUpcomingMilestones(milestones ?? [])
+    }
 
     setLoading(false)
   }
@@ -112,9 +141,7 @@ export default function Home() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-screen">
-        <motion.div animate={{ scale: [1, 1.2, 1] }} transition={{ duration: 1.5, repeat: Infinity }}>
-          <span className="text-5xl">💝</span>
-        </motion.div>
+        <span className="text-5xl animate-pulse-heart">💝</span>
       </div>
     )
   }
@@ -133,7 +160,7 @@ export default function Home() {
           <p className="text-xs text-muted font-body mt-0.5">
             {couple
               ? `${myFirstName} ❤️ ${partnerFirstName}`
-              : 'Waiting for your partner to join…'}
+              : 'Welcome to Surprise Mine!'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -150,19 +177,21 @@ export default function Home() {
         </div>
       </div>
 
-      {/* No couple yet banner */}
+      {/* Connect with partner — subtle, non-blocking */}
       {!couple && (
-        <Card animate className="mb-4 border-2 border-dashed border-primary/30">
-          <div className="text-center py-2">
-            <div className="text-4xl mb-2">💌</div>
-            <p className="font-body font-bold text-dark text-sm">Your partner hasn't joined yet</p>
-            <p className="text-xs text-muted font-body mt-1">
-              Share your invite code from{' '}
-              <button onClick={() => navigate('/profile')} className="text-primary font-bold">
-                Profile
-              </button>{' '}
-              to get started!
-            </p>
+        <Card animate className="mb-4 bg-primary/5 border border-primary/10">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">💕</span>
+            <div className="flex-1">
+              <p className="font-body font-semibold text-dark text-sm">Connect with your partner</p>
+              <p className="text-xs text-muted font-body">
+                Head to{' '}
+                <button onClick={() => navigate('/profile')} className="text-primary font-bold">
+                  Profile
+                </button>{' '}
+                to share your invite code
+              </p>
+            </div>
           </div>
         </Card>
       )}
@@ -179,13 +208,9 @@ export default function Home() {
             className="border-2 border-tertiary/50 bg-tertiary/5"
           >
             <div className="flex items-center gap-3">
-              <motion.span
-                animate={{ rotate: [0, 10, -10, 0] }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="text-3xl"
-              >
+              <span className="text-3xl animate-wiggle">
                 🎁
-              </motion.span>
+              </span>
               <div>
                 <p className="font-body font-bold text-dark text-sm">
                   You have {pendingGifts.length} unopened gift{pendingGifts.length > 1 ? 's' : ''}!
@@ -203,7 +228,6 @@ export default function Home() {
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
           className="mb-4"
         >
           <div
@@ -231,13 +255,15 @@ export default function Home() {
                 <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-xs ${myAnswer ? 'bg-success' : 'bg-white/30'}`}>
                   {myAnswer ? '✓' : '?'}
                 </div>
-                <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-xs ${partnerAnswer ? 'bg-success' : 'bg-white/30'}`}>
-                  {partnerAnswer ? '✓' : '?'}
-                </div>
+                {couple && (
+                  <div className={`w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-xs ${partnerAnswer ? 'bg-success' : 'bg-white/30'}`}>
+                    {partnerAnswer ? '✓' : '?'}
+                  </div>
+                )}
               </div>
               <span className="text-white/80 text-xs font-body font-semibold">
                 {questionStatus === 'unanswered' && 'Answer now →'}
-                {questionStatus === 'waiting' && `Waiting for ${partnerFirstName}... 🔒`}
+                {questionStatus === 'waiting' && (couple ? `Waiting for ${partnerFirstName}... 🔒` : 'Answered! 🎉')}
                 {questionStatus === 'both' && 'Reveal answers! 🎉'}
               </span>
             </div>
@@ -249,7 +275,7 @@ export default function Home() {
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
+        transition={{ delay: 0.1 }}
         className="mb-4"
       >
         <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Quick Actions</p>
@@ -273,7 +299,7 @@ export default function Home() {
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.15 }}
           className="mb-4"
         >
           <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Upcoming</p>
@@ -303,7 +329,7 @@ export default function Home() {
       <motion.div
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.4 }}
+        transition={{ delay: 0.2 }}
         className="grid grid-cols-3 gap-2"
       >
         {[

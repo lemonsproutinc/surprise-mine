@@ -1,12 +1,10 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { ReactNode } from 'react'
-import { motion } from 'framer-motion'
 
 // Screens — Onboarding
 import Welcome from './screens/onboarding/Welcome'
 import CreateAccount from './screens/onboarding/CreateAccount'
-import JoinPartner from './screens/onboarding/JoinPartner'
 import SignIn from './screens/onboarding/SignIn'
 import Preferences from './screens/onboarding/Preferences'
 
@@ -17,18 +15,18 @@ import Gifts from './screens/Gifts'
 import Milestones from './screens/Milestones'
 import Profile from './screens/Profile'
 
+// Screens — Standalone (no bottom nav)
+import Admin from './screens/Admin'
+import GiftOpen from './screens/GiftOpen'
+
 import AppLayout from './components/layout/AppLayout'
 
 function LoadingScreen() {
   return (
     <div className="flex h-screen items-center justify-center bg-background">
-      <motion.div
-        animate={{ scale: [1, 1.2, 1] }}
-        transition={{ duration: 1.5, repeat: Infinity, ease: 'easeInOut' }}
-        className="text-5xl"
-      >
+      <div className="text-5xl animate-pulse-heart">
         💝
-      </motion.div>
+      </div>
     </div>
   )
 }
@@ -53,8 +51,11 @@ function AppRoutes() {
       {/* Public / Onboarding */}
       <Route path="/" element={<PublicRoute><Welcome /></PublicRoute>} />
       <Route path="/signup" element={<PublicRoute><CreateAccount /></PublicRoute>} />
-      <Route path="/join" element={<PublicRoute><JoinPartner /></PublicRoute>} />
       <Route path="/signin" element={<PublicRoute><SignIn /></PublicRoute>} />
+
+      {/* Public standalone pages */}
+      <Route path="/admin" element={<Admin />} />
+      <Route path="/gift/:token" element={<GiftOpen />} />
 
       {/* Semi-protected: needs auth but no couple yet */}
       <Route path="/preferences" element={<ProtectedRoute><Preferences /></ProtectedRoute>} />

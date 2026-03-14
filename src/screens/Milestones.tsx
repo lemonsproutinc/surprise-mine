@@ -46,33 +46,62 @@ export default function Milestones() {
   const [date, setDate] = useState('')
   const [note, setNote] = useState('')
   const [milestoneType, setMilestoneType] = useState('custom')
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!couple) { setLoading(false); return }
+    if (!user) { setLoading(false); return }
     loadMilestones()
-  }, [couple])
+  }, [user, couple])
 
   const loadMilestones = async () => {
-    if (!couple) return
-    const { data } = await supabase
+    if (!user) return
+
+    let query = supabase
       .from('milestones')
       .select('*')
-      .eq('couple_id', couple.id)
       .order('milestone_date', { ascending: false })
+
+    if (couple) {
+      query = query.eq('couple_id', couple.id)
+    } else {
+      query = query.eq('created_by', user.id)
+    }
+
+    const { data } = await query
     setMilestones(data ?? [])
     setLoading(false)
   }
 
   const handleSave = async () => {
-    if (!title || !date || !couple || !user) return
+    if (!title || !date || !user) return
     setSaving(true)
 
+    let imageUrl: string | null = null
+
+    // Upload image if selected
+    if (imageFile) {
+      const ext = imageFile.name.split('.').pop()
+      const fileName = `${user.id}/${Date.now()}.${ext}`
+      const { data: uploadData, error: uploadError } = await supabase.storage
+        .from('milestone-images')
+        .upload(fileName, imageFile)
+
+      if (!uploadError && uploadData) {
+        const { data: urlData } = supabase.storage
+          .from('milestone-images')
+          .getPublicUrl(uploadData.path)
+        imageUrl = urlData.publicUrl
+      }
+    }
+
     const { error } = await supabase.from('milestones').insert({
-      couple_id: couple.id,
+      couple_id: couple?.id ?? null,
+      user_id: couple ? null : user.id,
       title,
       milestone_date: date,
       note: note || null,
+      photo_url: imageUrl,
       milestone_type: milestoneType,
       created_by: user.id,
     })
@@ -85,6 +114,7 @@ export default function Milestones() {
       setDate('')
       setNote('')
       setMilestoneType('custom')
+      setImageFile(null)
       loadMilestones()
     }
 
@@ -117,119 +147,112 @@ export default function Milestones() {
         </motion.button>
       </div>
 
-      {!couple && (
-        <div className="text-center py-16">
-          <div className="text-5xl mb-3">💑</div>
-          <p className="font-body font-bold text-dark">Pair up first!</p>
-          <p className="text-sm text-muted font-body mt-1">Milestones are shared with your partner.</p>
+      {/* Upcoming milestones */}
+      {upcoming.length > 0 && (
+        <div className="mb-5">
+          <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Upcoming</p>
+          <div className="flex flex-col gap-2">
+            {upcoming.map((m) => {
+              const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
+              return (
+                <motion.div
+                  key={m.id}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                >
+                  <Card className="border-l-4 border-tertiary">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{typeInfo?.emoji ?? '⭐'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-body font-bold text-dark text-sm">{m.title}</p>
+                        <p className="text-xs text-muted font-body">
+                          {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeUntil(m.milestone_date)}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                </motion.div>
+              )
+            })}
+          </div>
         </div>
       )}
 
-      {couple && (
-        <>
-          {/* Upcoming milestones */}
-          {upcoming.length > 0 && (
-            <div className="mb-5">
-              <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Upcoming</p>
-              <div className="flex flex-col gap-2">
-                {upcoming.map((m, i) => {
-                  const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
-                  return (
-                    <motion.div
-                      key={m.id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                    >
-                      <Card className="border-l-4 border-tertiary">
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl">{typeInfo?.emoji ?? '⭐'}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-body font-bold text-dark text-sm">{m.title}</p>
-                            <p className="text-xs text-muted font-body">
-                              {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeUntil(m.milestone_date)}
+      {/* Timeline — past milestones */}
+      {past.length === 0 && upcoming.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="text-5xl mb-3">🌱</div>
+          <p className="font-body font-bold text-dark">No milestones yet!</p>
+          <p className="text-sm text-muted font-body mt-1 mb-4">
+            Start logging your journey — every moment counts 💕
+          </p>
+          <Button variant="gradient" onClick={() => setShowForm(true)}>
+            Add Your First Milestone ✨
+          </Button>
+        </div>
+      ) : (
+        <div>
+          {past.length > 0 && (
+            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Timeline</p>
+          )}
+          <div className="relative flex flex-col gap-0">
+            {past.map((m, i) => {
+              const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
+              const isFirst = i === 0
+              const isLast = i === past.length - 1
+
+              return (
+                <motion.div
+                  key={m.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="flex gap-4"
+                >
+                  {/* Timeline line + dot */}
+                  <div className="flex flex-col items-center w-8 flex-shrink-0">
+                    {!isFirst && <div className="w-0.5 h-4 bg-surface" />}
+                    <div className="w-8 h-8 rounded-full gradient-brand flex items-center justify-center text-sm flex-shrink-0 shadow-soft">
+                      {typeInfo?.emoji ?? '⭐'}
+                    </div>
+                    {!isLast && <div className="w-0.5 flex-1 bg-surface min-h-[16px]" />}
+                  </div>
+
+                  {/* Card */}
+                  <div className="flex-1 pb-4">
+                    <Card padding="md" className="group">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-body font-bold text-dark text-sm">{m.title}</p>
+                          <p className="text-xs text-muted font-body mt-0.5">
+                            {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeAgo(m.milestone_date)}
+                          </p>
+                          {m.note && (
+                            <p className="text-xs text-dark font-body mt-2 leading-relaxed italic">
+                              "{m.note}"
                             </p>
-                          </div>
+                          )}
+                          {m.photo_url && (
+                            <img
+                              src={m.photo_url}
+                              alt={m.title}
+                              className="mt-2 rounded-xl w-full max-h-40 object-cover"
+                            />
+                          )}
                         </div>
-                      </Card>
-                    </motion.div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Timeline — past milestones */}
-          {past.length === 0 && upcoming.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="text-5xl mb-3">🌱</div>
-              <p className="font-body font-bold text-dark">No milestones yet!</p>
-              <p className="text-sm text-muted font-body mt-1 mb-4">
-                Start logging your journey together — every moment counts 💕
-              </p>
-              <Button variant="gradient" onClick={() => setShowForm(true)}>
-                Add Your First Milestone ✨
-              </Button>
-            </div>
-          ) : (
-            <div>
-              {past.length > 0 && (
-                <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Timeline</p>
-              )}
-              <div className="relative flex flex-col gap-0">
-                {past.map((m, i) => {
-                  const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
-                  const isFirst = i === 0
-                  const isLast = i === past.length - 1
-
-                  return (
-                    <motion.div
-                      key={m.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.06 }}
-                      className="flex gap-4"
-                    >
-                      {/* Timeline line + dot */}
-                      <div className="flex flex-col items-center w-8 flex-shrink-0">
-                        {!isFirst && <div className="w-0.5 h-4 bg-surface" />}
-                        <div className="w-8 h-8 rounded-full gradient-brand flex items-center justify-center text-sm flex-shrink-0 shadow-soft">
-                          {typeInfo?.emoji ?? '⭐'}
-                        </div>
-                        {!isLast && <div className="w-0.5 flex-1 bg-surface min-h-[16px]" />}
+                        <button
+                          onClick={() => handleDelete(m.id)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-red-400 text-xs p-1"
+                        >
+                          ✕
+                        </button>
                       </div>
-
-                      {/* Card */}
-                      <div className="flex-1 pb-4">
-                        <Card padding="md" className="group">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <p className="font-body font-bold text-dark text-sm">{m.title}</p>
-                              <p className="text-xs text-muted font-body mt-0.5">
-                                {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeAgo(m.milestone_date)}
-                              </p>
-                              {m.note && (
-                                <p className="text-xs text-dark font-body mt-2 leading-relaxed italic">
-                                  "{m.note}"
-                                </p>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => handleDelete(m.id)}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-red-400 text-xs p-1"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </Card>
-                      </div>
-                    </motion.div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </>
+                    </Card>
+                  </div>
+                </motion.div>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       {/* Add milestone sheet */}
@@ -239,7 +262,7 @@ export default function Milestones() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-dark/60 backdrop-blur-sm z-50 flex items-end justify-center"
+            className="fixed inset-0 bg-dark/60 backdrop-blur-sm z-50 flex items-start pt-16 justify-center"
             onClick={e => { if (e.target === e.currentTarget) setShowForm(false) }}
           >
             <motion.div
@@ -247,7 +270,7 @@ export default function Milestones() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 30, stiffness: 400 }}
-              className="bg-background rounded-t-3xl p-6 w-full max-w-[430px] max-h-[90vh] overflow-y-auto"
+              className="bg-background rounded-3xl p-6 w-full max-w-[430px] max-h-[85vh] overflow-y-auto mx-4"
             >
               <div className="flex items-center justify-between mb-5">
                 <h2 className="font-display text-xl text-dark">Add Milestone</h2>
@@ -262,7 +285,7 @@ export default function Milestones() {
               <div className="flex flex-col gap-4">
                 {/* Milestone type */}
                 <div>
-                  <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">Type</p>
+                  <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">Milestone</p>
                   <div className="grid grid-cols-5 gap-2">
                     {MILESTONE_TYPES.map(({ value, emoji }) => (
                       <motion.button
@@ -308,6 +331,40 @@ export default function Milestones() {
                   value={note}
                   onChange={e => setNote(e.target.value)}
                 />
+
+                {/* Image upload */}
+                <div>
+                  <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">Photo (optional)</p>
+                  <label className="flex items-center gap-3 p-3 rounded-2xl border-2 border-dashed border-surface bg-white cursor-pointer hover:border-primary/40 transition-colors">
+                    <span className="text-2xl">📷</span>
+                    <div className="flex-1">
+                      {imageFile ? (
+                        <p className="font-body text-dark text-sm">{imageFile.name}</p>
+                      ) : (
+                        <p className="font-body text-muted text-sm">Add a photo to this milestone</p>
+                      )}
+                    </div>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/heic"
+                      className="hidden"
+                      onChange={e => {
+                        const file = e.target.files?.[0]
+                        if (file && file.size <= 5 * 1024 * 1024) {
+                          setImageFile(file)
+                        }
+                      }}
+                    />
+                  </label>
+                  {imageFile && (
+                    <button
+                      onClick={() => setImageFile(null)}
+                      className="text-xs text-red-400 font-body mt-1"
+                    >
+                      Remove photo
+                    </button>
+                  )}
+                </div>
 
                 <p className="text-xs text-muted font-body text-center">
                   Logging a milestone earns +{HEARTS.LOG_MILESTONE} 💝 hearts!
