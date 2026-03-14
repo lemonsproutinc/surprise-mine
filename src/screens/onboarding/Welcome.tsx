@@ -8,51 +8,63 @@ const features = [
   { emoji: '💝', label: 'Earn\nHearts' },
 ]
 
+function StarRating() {
+  // 4.9/5 stars — 98% filled
+  return (
+    <div className="flex items-center gap-1.5 justify-center">
+      {[1, 2, 3, 4].map(i => (
+        <svg key={i} width="18" height="18" viewBox="0 0 24 24" fill="#FFD93D">
+          <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+        </svg>
+      ))}
+      {/* Partial star at ~90% */}
+      <svg width="18" height="18" viewBox="0 0 24 24">
+        <defs>
+          <linearGradient id="partialStar">
+            <stop offset="90%" stopColor="#FFD93D" />
+            <stop offset="90%" stopColor="#E5E7EB" />
+          </linearGradient>
+        </defs>
+        <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="url(#partialStar)" />
+      </svg>
+      <span className="text-sm font-body font-bold text-dark ml-1">4.9/5 stars</span>
+    </div>
+  )
+}
+
 export default function Welcome() {
   const navigate = useNavigate()
 
   return (
-    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 py-10 relative overflow-hidden">
+    <div className="min-h-screen bg-background flex flex-col items-center justify-center px-6 py-4 relative overflow-hidden">
       {/* Background blobs */}
       <div className="absolute top-[-80px] right-[-80px] w-72 h-72 rounded-full bg-primary/10 blur-3xl pointer-events-none" />
       <div className="absolute bottom-[-80px] left-[-80px] w-72 h-72 rounded-full bg-secondary/10 blur-3xl pointer-events-none" />
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 rounded-full bg-tertiary/5 blur-3xl pointer-events-none" />
 
       <div className="relative z-10 flex flex-col items-center text-center w-full max-w-sm">
-        {/* Animated logo */}
+        {/* Logo — CSS animation instead of JS loop */}
         <motion.div
           initial={{ scale: 0, rotate: -15 }}
           animate={{ scale: 1, rotate: 0 }}
           transition={{ type: 'spring', stiffness: 180, damping: 14 }}
-          className="mb-4 relative"
+          className="mb-3 relative"
         >
-          <motion.div
-            animate={{ rotate: [0, 4, -4, 0] }}
-            transition={{ duration: 5, repeat: Infinity, ease: 'easeInOut' }}
-            className="text-[88px] leading-none select-none"
-          >
+          <div className="text-[72px] leading-none select-none animate-rotate-gentle">
             💝
-          </motion.div>
-          {/* Sparkles */}
+          </div>
+          {/* Sparkles — CSS animations */}
           {[
-            { emoji: '✨', style: { top: '-8px', left: '-18px' }, delay: 0 },
-            { emoji: '⭐', style: { top: '-4px', right: '-16px' }, delay: 0.6 },
-            { emoji: '✨', style: { bottom: '4px', right: '-20px' }, delay: 1.2 },
+            { emoji: '✨', style: { top: '-8px', left: '-18px' }, delay: '0s' },
+            { emoji: '⭐', style: { top: '-4px', right: '-16px' }, delay: '0.8s' },
+            { emoji: '✨', style: { bottom: '4px', right: '-20px' }, delay: '1.6s' },
           ].map(({ emoji, style, delay }, i) => (
-            <motion.span
+            <span
               key={i}
-              initial={{ opacity: 0, scale: 0 }}
-              animate={{
-                opacity: [0, 1, 0],
-                scale: [0.5, 1.2, 0.5],
-                y: [0, -12, -24],
-              }}
-              transition={{ duration: 2.5, repeat: Infinity, delay, ease: 'easeOut' }}
-              className="absolute text-lg pointer-events-none"
-              style={style}
+              className="absolute text-lg pointer-events-none animate-bounce-sparkle"
+              style={{ ...style, animationDelay: delay }}
             >
               {emoji}
-            </motion.span>
+            </span>
           ))}
         </motion.div>
 
@@ -60,7 +72,7 @@ export default function Welcome() {
         <motion.h1
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35 }}
+          transition={{ delay: 0.3 }}
           className="font-display text-5xl text-dark leading-tight mb-1"
         >
           Surprise Mine
@@ -69,32 +81,63 @@ export default function Welcome() {
         <motion.p
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="font-body text-lg text-muted mb-10"
+          transition={{ delay: 0.45 }}
+          className="font-body text-lg text-muted mb-3"
         >
-          Your love, leveled up. 💫
+          The app that brings couples closer.
         </motion.p>
+
+        {/* Star rating */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.55 }}
+          className="mb-3"
+        >
+          <StarRating />
+        </motion.div>
+
+        {/* Testimonial */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.65 }}
+          className="bg-white rounded-2xl p-4 shadow-card border border-surface mb-4 text-left"
+        >
+          <p className="text-xs text-muted font-body leading-relaxed italic">
+            "I'm always surprised with what my partner says (in a good way) with the questions. We change as we get older, and it's nice to learn more about them and send cute little notes &amp; gifts to each other. It's nice when we can do it on our own times so that it's a surprise when I get a notification"
+          </p>
+          <div className="flex items-center gap-1.5 mt-2">
+            <div className="flex">
+              {[1,2,3,4,5].map(i => (
+                <svg key={i} width="12" height="12" viewBox="0 0 24 24" fill="#FFD93D">
+                  <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                </svg>
+              ))}
+            </div>
+            <span className="text-[10px] text-muted font-body">Verified user</span>
+          </div>
+        </motion.div>
 
         {/* Feature pills */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.65 }}
-          className="flex gap-4 mb-10 justify-center"
+          transition={{ delay: 0.75 }}
+          className="flex gap-4 mb-5 justify-center"
         >
           {features.map(({ emoji, label }) => (
-            <motion.div
+            <div
               key={emoji}
-              whileHover={{ scale: 1.05 }}
               className="flex flex-col items-center gap-1.5"
             >
-              <div className="w-16 h-16 rounded-3xl bg-white shadow-card flex items-center justify-center text-3xl">
+              <div className="w-14 h-14 rounded-3xl bg-white shadow-card flex items-center justify-center text-2xl">
                 {emoji}
               </div>
               <span className="text-xs text-muted font-body font-bold whitespace-pre-line text-center leading-tight">
                 {label}
               </span>
-            </motion.div>
+            </div>
           ))}
         </motion.div>
 
@@ -102,24 +145,16 @@ export default function Welcome() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.8 }}
+          transition={{ delay: 0.85 }}
           className="w-full flex flex-col gap-3"
         >
           <Button size="lg" fullWidth variant="gradient" onClick={() => navigate('/signup')}>
             Create Account ✨
           </Button>
 
-          <Button size="lg" fullWidth variant="outline" onClick={() => navigate('/join')}>
-            Join My Partner 💕
+          <Button size="lg" fullWidth variant="outline" onClick={() => navigate('/signin')}>
+            Sign In 💕
           </Button>
-
-          <button
-            onClick={() => navigate('/signin')}
-            className="mt-1 text-sm text-muted font-body font-semibold hover:text-dark transition-colors"
-          >
-            Already have an account?{' '}
-            <span className="text-primary">Sign in</span>
-          </button>
         </motion.div>
       </div>
     </div>

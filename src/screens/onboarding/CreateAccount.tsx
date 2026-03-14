@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import Button from '../../components/ui/Button'
 import { Input } from '../../components/ui/Input'
@@ -10,12 +11,10 @@ export default function CreateAccount() {
   const navigate = useNavigate()
   const { signUp } = useAuth()
 
-  const [step, setStep] = useState<'form' | 'code'>('form')
-  const [inviteCode, setInviteCode] = useState('')
-
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [partnerName, setPartnerName] = useState('')
   const [stage, setStage] = useState('dating')
   const [error, setError] = useState('')
@@ -70,7 +69,7 @@ export default function CreateAccount() {
           <div className="flex flex-col gap-3">
             <Input
               label="Your Name"
-              placeholder="e.g. Alex"
+              placeholder="Full Name"
               value={name}
               onChange={e => setName(e.target.value)}
               icon="👤"
@@ -85,11 +84,21 @@ export default function CreateAccount() {
             />
             <Input
               label="Password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="At least 6 characters"
               value={password}
               onChange={e => setPassword(e.target.value)}
               icon="🔒"
+              rightElement={
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="text-muted hover:text-dark transition-colors p-0.5"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              }
             />
           </div>
         </div>
@@ -99,7 +108,7 @@ export default function CreateAccount() {
           <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Your Partner</p>
           <Input
             label="Partner's Name or Nickname"
-            placeholder="e.g. Jordan"
+            placeholder="Your Partner's Name or Nickname"
             value={partnerName}
             onChange={e => setPartnerName(e.target.value)}
             icon="💕"

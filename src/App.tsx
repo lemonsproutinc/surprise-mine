@@ -6,7 +6,6 @@ import { motion } from 'framer-motion'
 // Screens — Onboarding
 import Welcome from './screens/onboarding/Welcome'
 import CreateAccount from './screens/onboarding/CreateAccount'
-import JoinPartner from './screens/onboarding/JoinPartner'
 import SignIn from './screens/onboarding/SignIn'
 import Preferences from './screens/onboarding/Preferences'
 
@@ -54,7 +53,6 @@ function AppRoutes() {
       {/* Public / Onboarding */}
       <Route path="/" element={<PublicRoute><Welcome /></PublicRoute>} />
       <Route path="/signup" element={<PublicRoute><CreateAccount /></PublicRoute>} />
-      <Route path="/join" element={<PublicRoute><JoinPartner /></PublicRoute>} />
       <Route path="/signin" element={<PublicRoute><SignIn /></PublicRoute>} />
 
       {/* Semi-protected: needs auth but no couple yet */}

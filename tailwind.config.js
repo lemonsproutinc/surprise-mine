@@ -31,6 +31,8 @@ export default {
         'float': 'float 3s ease-in-out infinite',
         'pulse-soft': 'pulse 3s ease-in-out infinite',
         'wiggle': 'wiggle 1s ease-in-out infinite',
+        'rotate-gentle': 'rotateGentle 5s ease-in-out infinite',
+        'bounce-sparkle': 'bounceSparkle 2.5s ease-out infinite',
       },
       keyframes: {
         float: {
@@ -40,6 +42,15 @@ export default {
         wiggle: {
           '0%, 100%': { transform: 'rotate(-3deg)' },
           '50%': { transform: 'rotate(3deg)' },
+        },
+        rotateGentle: {
+          '0%, 100%': { transform: 'rotate(0deg)' },
+          '25%': { transform: 'rotate(4deg)' },
+          '75%': { transform: 'rotate(-4deg)' },
+        },
+        bounceSparkle: {
+          '0%, 100%': { opacity: '0', transform: 'scale(0.5)' },
+          '50%': { opacity: '1', transform: 'scale(1.2)' },
         },
       },
     },
