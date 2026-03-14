@@ -140,35 +140,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     stage: string,
     partnerName: string
   ) => {
-    const { data, error } = await supabase.auth.signUp({ email, password })
-    if (error) return { error: error.message }
-    if (!data.user) return { error: 'Signup failed. Please try again.' }
+    try {
+      const { data, error } = await supabase.auth.signUp({ email, password })
+      if (error) return { error: error.message }
+      if (!data.user) return { error: 'Signup failed. Please try again.' }
 
-    const inviteCode = generateInviteCode()
+      const inviteCode = generateInviteCode()
 
-    const { error: profileError } = await supabase.from('profiles').insert({
-      id: data.user.id,
-      name,
-      email,
-      relationship_stage: stage,
-      partner_name: partnerName,
-      invite_code: inviteCode,
-    })
+      const { error: profileError } = await supabase.from('profiles').insert({
+        id: data.user.id,
+        name,
+        email,
+        relationship_stage: stage,
+        partner_name: partnerName,
+        invite_code: inviteCode,
+      })
 
-    if (profileError) return { error: profileError.message }
+      if (profileError) return { error: profileError.message }
 
-    await supabase.from('invite_codes').insert({
-      code: inviteCode,
-      creator_id: data.user.id,
-    })
+      await supabase.from('invite_codes').insert({
+        code: inviteCode,
+        creator_id: data.user.id,
+      })
 
-    return { error: null }
+      return { error: null }
+    } catch (e: unknown) {
+      return { error: e instanceof Error ? e.message : 'Something went wrong. Please try again.' }
+    }
   }
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return { error: error.message }
-    return { error: null }
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      if (error) return { error: error.message }
+      return { error: null }
+    } catch (e: unknown) {
+      return { error: e instanceof Error ? e.message : 'Something went wrong. Please try again.' }
+    }
   }
 
   const signOut = async () => {
