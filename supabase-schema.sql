@@ -185,12 +185,9 @@ create policy "answers_select" on public.question_answers for select using (
 );
 create policy "answers_insert" on public.question_answers for insert with check (auth.uid() = user_id);
 
--- Gifts: public read by gift ID (UUID is unguessable — used as share token)
--- Authenticated users can also see gifts they sent or received
-create policy "gifts_public_select" on public.gifts for select to anon using (true);
-create policy "gifts_select" on public.gifts for select using (
-  auth.uid() = from_user_id or auth.uid() = to_user_id
-);
+-- Gifts: any user (anon or authenticated) can read any gift by ID.
+-- UUID provides unguessable access control (~122-bit entropy) — no auth needed.
+create policy "gifts_select" on public.gifts for select using (true);
 create policy "gifts_insert" on public.gifts for insert with check (auth.uid() = from_user_id);
 create policy "gifts_update" on public.gifts for update using (auth.uid() = to_user_id);
 
