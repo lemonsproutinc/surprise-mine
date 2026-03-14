@@ -27,6 +27,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Request timed out. Check your connection.')), ms)
+    ),
+  ])
+}
+
 function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let code = 'LOVE-'
@@ -141,7 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     partnerName: string
   ) => {
     try {
-      const { data, error } = await supabase.auth.signUp({ email, password })
+      const { data, error } = await withTimeout(supabase.auth.signUp({ email, password }), 15000)
       if (error) return { error: error.message }
       if (!data.user) return { error: 'Signup failed. Please try again.' }
 
@@ -171,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password })
+      const { error } = await withTimeout(supabase.auth.signInWithPassword({ email, password }), 15000)
       if (error) return { error: error.message }
       return { error: null }
     } catch (e: unknown) {

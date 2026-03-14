@@ -32,18 +32,20 @@ export default function CreateAccount() {
     setError('')
     setLoading(true)
 
-    const { error: signUpError } = await signUp(email, password, name, stage, partnerName)
+    try {
+      const { error: signUpError } = await signUp(email, password, name, stage, partnerName)
 
-    if (signUpError) {
-      setError(signUpError)
+      if (signUpError) {
+        setError(signUpError)
+        return
+      }
+
+      navigate('/preferences')
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
       setLoading(false)
-      return
     }
-
-    // Fetch the generated invite code from the profile
-    setLoading(false)
-    // Navigate to preferences — the invite code is shown there
-    navigate('/preferences')
   }
 
   return (

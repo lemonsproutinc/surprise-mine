@@ -18,10 +18,15 @@ export default function SignIn() {
     if (!email || !password) { setError('Please enter your email and password.'); return }
     setError('')
     setLoading(true)
-    const { error: signInError } = await signIn(email, password)
-    setLoading(false)
-    if (signInError) { setError(signInError); return }
-    navigate('/home')
+    try {
+      const { error: signInError } = await signIn(email, password)
+      if (signInError) { setError(signInError); return }
+      navigate('/home')
+    } catch {
+      setError('Something went wrong. Please try again.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
