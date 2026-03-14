@@ -1,23 +1,20 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './hooks/useAuth'
-import { ReactNode } from 'react'
+import { ReactNode, lazy, Suspense } from 'react'
 import { motion } from 'framer-motion'
 
-// Screens — Onboarding
-import Welcome from './screens/onboarding/Welcome'
-import CreateAccount from './screens/onboarding/CreateAccount'
-import SignIn from './screens/onboarding/SignIn'
-import Preferences from './screens/onboarding/Preferences'
-
-// Screens — Main App
-import Home from './screens/Home'
-import Questions from './screens/Questions'
-import Gifts from './screens/Gifts'
-import GiftView from './screens/GiftView'
-import Milestones from './screens/Milestones'
-import Profile from './screens/Profile'
-
-import AppLayout from './components/layout/AppLayout'
+// Screens — lazy loaded for code splitting
+const Welcome = lazy(() => import('./screens/onboarding/Welcome'))
+const CreateAccount = lazy(() => import('./screens/onboarding/CreateAccount'))
+const SignIn = lazy(() => import('./screens/onboarding/SignIn'))
+const Preferences = lazy(() => import('./screens/onboarding/Preferences'))
+const Home = lazy(() => import('./screens/Home'))
+const Questions = lazy(() => import('./screens/Questions'))
+const Gifts = lazy(() => import('./screens/Gifts'))
+const GiftView = lazy(() => import('./screens/GiftView'))
+const Milestones = lazy(() => import('./screens/Milestones'))
+const Profile = lazy(() => import('./screens/Profile'))
+const AppLayout = lazy(() => import('./components/layout/AppLayout'))
 
 function LoadingScreen() {
   return (
@@ -49,30 +46,32 @@ function PublicRoute({ children }: { children: ReactNode }) {
 
 function AppRoutes() {
   return (
-    <Routes>
-      {/* Public / Onboarding */}
-      <Route path="/" element={<PublicRoute><Welcome /></PublicRoute>} />
-      <Route path="/signup" element={<PublicRoute><CreateAccount /></PublicRoute>} />
-      <Route path="/signin" element={<PublicRoute><SignIn /></PublicRoute>} />
+    <Suspense fallback={<LoadingScreen />}>
+      <Routes>
+        {/* Public / Onboarding */}
+        <Route path="/" element={<PublicRoute><Welcome /></PublicRoute>} />
+        <Route path="/signup" element={<PublicRoute><CreateAccount /></PublicRoute>} />
+        <Route path="/signin" element={<PublicRoute><SignIn /></PublicRoute>} />
 
-      {/* Semi-protected: needs auth but no couple yet */}
-      <Route path="/preferences" element={<ProtectedRoute><Preferences /></ProtectedRoute>} />
+        {/* Semi-protected: needs auth but no couple yet */}
+        <Route path="/preferences" element={<ProtectedRoute><Preferences /></ProtectedRoute>} />
 
-      {/* Main App */}
-      <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-        <Route path="/home" element={<Home />} />
-        <Route path="/questions" element={<Questions />} />
-        <Route path="/gifts" element={<Gifts />} />
-        <Route path="/milestones" element={<Milestones />} />
-        <Route path="/profile" element={<Profile />} />
-      </Route>
+        {/* Main App */}
+        <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+          <Route path="/home" element={<Home />} />
+          <Route path="/questions" element={<Questions />} />
+          <Route path="/gifts" element={<Gifts />} />
+          <Route path="/milestones" element={<Milestones />} />
+          <Route path="/profile" element={<Profile />} />
+        </Route>
 
-      {/* Public gift view — no auth required */}
-      <Route path="/gift/:giftId" element={<GiftView />} />
+        {/* Public gift view — no auth required */}
+        <Route path="/gift/:giftId" element={<GiftView />} />
 
-      {/* Fallback */}
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   )
 }
 

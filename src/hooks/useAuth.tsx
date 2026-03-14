@@ -65,35 +65,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setProfile(profileData)
 
-    if (profileData.couple_id) {
-      const { data: coupleData } = await supabase
-        .from('couples')
-        .select('*')
-        .eq('id', profileData.couple_id)
-        .single()
+    // Run independent queries in parallel
+    const [coupleResult, hearts, streakResult] = await Promise.all([
+      profileData.couple_id
+        ? supabase.from('couples').select('*').eq('id', profileData.couple_id).single()
+        : Promise.resolve({ data: null, error: null }),
+      getTotalHearts(userId),
+      supabase.from('streaks').select('current_streak').eq('user_id', userId).single(),
+    ])
 
-      if (coupleData) {
-        setCouple(coupleData)
-        const partnerId =
-          coupleData.user1_id === userId ? coupleData.user2_id : coupleData.user1_id
-        const { data: partnerData } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', partnerId)
-          .single()
-        if (partnerData) setPartnerProfile(partnerData)
-      }
-    }
-
-    const hearts = await getTotalHearts(userId)
     setTotalHearts(hearts)
+    if (streakResult.data) setCurrentStreak(streakResult.data.current_streak)
 
-    const { data: streakData } = await supabase
-      .from('streaks')
-      .select('current_streak')
-      .eq('user_id', userId)
-      .single()
-    if (streakData) setCurrentStreak(streakData.current_streak)
+    if (coupleResult.data) {
+      setCouple(coupleResult.data)
+      const partnerId =
+        coupleResult.data.user1_id === userId
+          ? coupleResult.data.user2_id
+          : coupleResult.data.user1_id
+      // Fetch partner in background — not needed for navigation
+      supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', partnerId)
+        .single()
+        .then(({ data }) => { if (data) setPartnerProfile(data) })
+    }
   }
 
   useEffect(() => {
@@ -124,6 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null)
       if (session?.user) {
+        setLoading(true)
         await loadProfile(session.user.id)
       } else {
         setProfile(null)
