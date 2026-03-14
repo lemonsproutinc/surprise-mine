@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
@@ -16,53 +16,74 @@ const GIFT_TYPES: { type: GiftType; emoji: string; label: string; desc: string; 
   { type: 'fortune_cookie', emoji: '🥠', label: 'Fortune Cookie', desc: 'Crack it open!', color: 'from-success/20 to-success/5' },
 ]
 
-// Gift opening animations
+// Interactive CSS gift box that requires multiple clicks to open
+export function GiftBoxInteractive({ photoUrl, onOpened }: { photoUrl?: string; onOpened: () => void }) {
+  const [clicks, setClicks] = useState(0)
+  const [isOpen, setIsOpen] = useState(false)
+  const [hint, setHint] = useState('Click me!')
+  const targetRef = useRef(Math.floor(Math.random() * 3) + 8) // 8–10
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
+
+  const handleClick = () => {
+    if (isOpen) return
+    const newClicks = clicks + 1
+    setClicks(newClicks)
+
+    if (newClicks === 1) setHint('Keep clicking!')
+
+    if (newClicks >= targetRef.current) {
+      setIsOpen(true)
+      setHint('🎁')
+      onOpened()
+      return
+    }
+
+    // Shake animation: remove class, force reflow, re-add
+    if (bodyRef.current) {
+      bodyRef.current.classList.remove('gb-shake')
+      void bodyRef.current.offsetWidth
+      bodyRef.current.classList.add('gb-shake')
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center select-none">
+      <p className="text-white font-body font-bold text-lg mb-4 tracking-wide">{hint}</p>
+      <div
+        ref={boxRef}
+        className={`gb-box${isOpen ? ' gb-open' : ''}`}
+        onClick={handleClick}
+      >
+        <div ref={bodyRef} className="gb-box-body">
+          {photoUrl && (
+            <img
+              className="gb-img"
+              src={photoUrl}
+              alt="Gift"
+            />
+          )}
+          <div className="gb-box-lid">
+            <div className="gb-box-bowtie" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Gift opening overlay (inbox)
 function GiftAnimation({ gift, onClose }: { gift: Gift; onClose: () => void }) {
   const [stage, setStage] = useState<'closed' | 'opening' | 'open'>('closed')
 
   useEffect(() => {
+    if (gift.gift_type === 'gift_box') return // gift_box uses interactive clicks
     const t1 = setTimeout(() => setStage('opening'), 400)
     const t2 = setTimeout(() => setStage('open'), 1600)
     return () => { clearTimeout(t1); clearTimeout(t2) }
-  }, [])
+  }, [gift.gift_type])
 
-  const animations: Record<GiftType, JSX.Element> = {
-    gift_box: (
-      <div className="relative flex flex-col items-center">
-        <motion.div
-          animate={stage === 'opening' ? { y: -60, rotate: -15, opacity: 0 } : {}}
-          transition={{ duration: 0.8, type: 'spring' }}
-          className="text-[80px] select-none"
-        >
-          🎁
-        </motion.div>
-        {stage === 'opening' && (
-          <motion.div
-            initial={{ scale: 0, opacity: 0 }}
-            animate={{ scale: [0, 1.3, 1], opacity: 1 }}
-            transition={{ delay: 0.4, duration: 0.6 }}
-            className="absolute inset-0 flex items-center justify-center"
-          >
-            {['🎊', '✨', '🎉', '⭐', '🌟'].map((e, i) => (
-              <motion.span
-                key={i}
-                initial={{ x: 0, y: 0, opacity: 1 }}
-                animate={{
-                  x: (Math.cos((i * 72 * Math.PI) / 180)) * 70,
-                  y: (Math.sin((i * 72 * Math.PI) / 180)) * 70,
-                  opacity: [1, 1, 0],
-                  scale: [1, 1.5, 0],
-                }}
-                transition={{ duration: 1, delay: 0.5 + i * 0.1 }}
-                className="absolute text-2xl"
-              >
-                {e}
-              </motion.span>
-            ))}
-          </motion.div>
-        )}
-      </div>
-    ),
+  const nonBoxAnimations: Partial<Record<GiftType, JSX.Element>> = {
     love_letter: (
       <div className="flex flex-col items-center">
         <motion.div
@@ -109,7 +130,7 @@ function GiftAnimation({ gift, onClose }: { gift: Gift; onClose: () => void }) {
           transition={{ duration: 1 }}
           className="text-[80px] select-none"
         >
-          {stage === 'open' ? '🥠' : '🥠'}
+          🥠
         </motion.div>
         {stage === 'opening' && (
           <motion.div
@@ -125,57 +146,99 @@ function GiftAnimation({ gift, onClose }: { gift: Gift; onClose: () => void }) {
     ),
   }
 
+  const isGiftBox = gift.gift_type === 'gift_box'
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 bg-dark/60 backdrop-blur-sm z-50 flex items-center justify-center px-6"
-      onClick={stage === 'open' ? onClose : undefined}
+      className="fixed inset-0 bg-dark/80 backdrop-blur-sm z-50 flex items-center justify-center px-6"
+      onClick={stage === 'open' && !isGiftBox ? onClose : undefined}
     >
       <motion.div
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
-        className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-medium"
+        className={`${isGiftBox ? 'bg-transparent w-full max-w-sm' : 'bg-white rounded-3xl p-6 w-full max-w-sm shadow-medium'}`}
       >
-        <div className="flex flex-col items-center gap-4">
-          <div className="relative min-h-[120px] flex items-center justify-center w-full">
-            {animations[gift.gift_type]}
-          </div>
-
-          <AnimatePresence>
-            {stage === 'open' && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="w-full text-center"
-              >
-                <p className="font-display text-2xl text-dark mb-1">
-                  {GIFT_TYPES.find(g => g.type === gift.gift_type)?.emoji} A gift for you!
-                </p>
-                <div className="bg-surface rounded-2xl p-4 mt-3">
-                  <p className="font-body text-dark text-base leading-relaxed">"{gift.message}"</p>
-                </div>
-                <p className="text-xs text-muted font-body mt-2">
-                  {format(parseISO(gift.created_at), 'MMM d, yyyy')}
-                </p>
-                <Button
-                  size="lg"
-                  fullWidth
-                  variant="gradient"
-                  onClick={onClose}
-                  className="mt-4"
+        {isGiftBox ? (
+          // Interactive CSS gift box
+          <div className="flex flex-col items-center gap-6">
+            <GiftBoxInteractive
+              photoUrl={gift.photo_url}
+              onOpened={() => setStage('open')}
+            />
+            <AnimatePresence>
+              {stage === 'open' && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full bg-white rounded-3xl p-6 shadow-medium text-center"
                 >
-                  Close 💝
-                </Button>
-              </motion.div>
+                  <p className="font-display text-2xl text-dark mb-1">🎁 A gift for you!</p>
+                  <div className="bg-surface rounded-2xl p-4 mt-3">
+                    <p className="font-body text-dark text-base leading-relaxed">"{gift.message}"</p>
+                  </div>
+                  {gift.photo_url && (
+                    <img
+                      src={gift.photo_url}
+                      alt="Gift"
+                      className="mt-3 rounded-2xl w-full max-h-48 object-cover"
+                    />
+                  )}
+                  <p className="text-xs text-muted font-body mt-2">
+                    {format(parseISO(gift.created_at), 'MMM d, yyyy')}
+                  </p>
+                  <Button size="lg" fullWidth variant="gradient" onClick={onClose} className="mt-4">
+                    Close 💝
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {stage !== 'open' && (
+              <p className="text-white/70 font-body text-sm animate-pulse">Tap the box to open…</p>
             )}
-          </AnimatePresence>
-
-          {stage !== 'open' && (
-            <p className="text-muted font-body text-sm animate-pulse">Opening your gift…</p>
-          )}
-        </div>
+          </div>
+        ) : (
+          // Non-gift-box animations
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative min-h-[120px] flex items-center justify-center w-full">
+              {nonBoxAnimations[gift.gift_type]}
+            </div>
+            <AnimatePresence>
+              {stage === 'open' && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="w-full text-center"
+                >
+                  <p className="font-display text-2xl text-dark mb-1">
+                    {GIFT_TYPES.find(g => g.type === gift.gift_type)?.emoji} A gift for you!
+                  </p>
+                  <div className="bg-surface rounded-2xl p-4 mt-3">
+                    <p className="font-body text-dark text-base leading-relaxed">"{gift.message}"</p>
+                  </div>
+                  {gift.photo_url && (
+                    <img
+                      src={gift.photo_url}
+                      alt="Gift"
+                      className="mt-3 rounded-2xl w-full max-h-48 object-cover"
+                    />
+                  )}
+                  <p className="text-xs text-muted font-body mt-2">
+                    {format(parseISO(gift.created_at), 'MMM d, yyyy')}
+                  </p>
+                  <Button size="lg" fullWidth variant="gradient" onClick={onClose} className="mt-4">
+                    Close 💝
+                  </Button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+            {stage !== 'open' && (
+              <p className="text-muted font-body text-sm animate-pulse">Opening your gift…</p>
+            )}
+          </div>
+        )}
       </motion.div>
     </motion.div>
   )
@@ -193,8 +256,12 @@ export default function Gifts() {
   // Send form
   const [selectedType, setSelectedType] = useState<GiftType>('gift_box')
   const [message, setMessage] = useState('')
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   const [sentSuccess, setSentSuccess] = useState(false)
+  const [shareLink, setShareLink] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const partnerName = partnerProfile?.name?.split(' ')[0] ?? 'your partner'
 
@@ -224,35 +291,77 @@ export default function Gifts() {
     setLoading(false)
   }
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageFile(file)
+    const reader = new FileReader()
+    reader.onload = ev => setImagePreview(ev.target?.result as string)
+    reader.readAsDataURL(file)
+  }
+
+  const clearImage = () => {
+    setImageFile(null)
+    setImagePreview(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const handleSend = async () => {
-    if (!message.trim() || !couple || !user || !partnerProfile) return
+    if (!message.trim() || !user) return
     setSending(true)
+    try {
+      let photoUrl: string | undefined
 
-    const { error } = await supabase.from('gifts').insert({
-      from_user_id: user.id,
-      to_user_id: partnerProfile.id,
-      couple_id: couple.id,
-      gift_type: selectedType,
-      message: message.trim(),
-    })
+      if (imageFile) {
+        const ext = imageFile.name.split('.').pop()
+        const path = `${user.id}/${Date.now()}.${ext}`
+        const { data: upload, error: uploadErr } = await supabase.storage
+          .from('gift-images')
+          .upload(path, imageFile)
+        if (!uploadErr && upload) {
+          const { data: urlData } = supabase.storage
+            .from('gift-images')
+            .getPublicUrl(upload.path)
+          photoUrl = urlData.publicUrl
+        }
+      }
 
-    if (!error) {
-      await awardHearts(user.id, HEARTS.SEND_GIFT, 'Sent a virtual gift')
-      await refreshHearts()
-      setSentSuccess(true)
-      setMessage('')
-      setTimeout(() => setSentSuccess(false), 3000)
-      loadGifts()
+      const { data: giftData, error } = await supabase
+        .from('gifts')
+        .insert({
+          from_user_id: user.id,
+          to_user_id: partnerProfile?.id ?? null,
+          couple_id: couple?.id ?? null,
+          gift_type: selectedType,
+          message: message.trim(),
+          photo_url: photoUrl ?? null,
+        })
+        .select()
+        .single()
+
+      if (!error && giftData) {
+        if (couple) {
+          await awardHearts(user.id, HEARTS.SEND_GIFT, 'Sent a virtual gift')
+          await refreshHearts()
+        }
+        setShareLink(`${window.location.origin}/gift/${giftData.id}`)
+        setSentSuccess(true)
+        setMessage('')
+        clearImage()
+        loadGifts()
+      }
+    } finally {
+      setSending(false)
     }
+  }
 
-    setSending(false)
+  const copyLink = () => {
+    if (shareLink) navigator.clipboard.writeText(shareLink)
   }
 
   const handleOpenGift = async (gift: Gift) => {
     if (gift.opened) return
     setOpeningGift(gift)
-
-    // Mark as opened
     await supabase.from('gifts').update({ opened: true }).eq('id', gift.id)
     setInbox(prev => prev.map(g => g.id === gift.id ? { ...g, opened: true } : g))
   }
@@ -288,18 +397,12 @@ export default function Gifts() {
 
       {tab === 'inbox' && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-3">
-          {!couple ? (
-            <div className="text-center py-16">
-              <div className="text-5xl mb-3">💌</div>
-              <p className="font-body font-bold text-dark">Pair up first!</p>
-              <p className="text-sm text-muted font-body mt-1">You need a partner to exchange gifts.</p>
-            </div>
-          ) : inbox.length === 0 ? (
+          {inbox.length === 0 ? (
             <div className="text-center py-16">
               <div className="text-5xl mb-3">🎁</div>
               <p className="font-body font-bold text-dark">No gifts yet!</p>
               <p className="text-sm text-muted font-body mt-1">
-                Hint to {partnerName} that you'd love a surprise 😉
+                {couple ? `Hint to ${partnerName} that you'd love a surprise 😉` : 'Share your link with someone special!'}
               </p>
             </div>
           ) : (
@@ -357,71 +460,118 @@ export default function Gifts() {
 
       {tab === 'send' && (
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col gap-4">
-          {!couple ? (
-            <div className="text-center py-16">
-              <div className="text-5xl mb-3">💌</div>
-              <p className="font-body font-bold text-dark">Pair up first!</p>
-            </div>
-          ) : (
-            <>
-              {sentSuccess && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="rounded-2xl bg-success/15 border border-success/30 p-3 text-center"
-                >
-                  <p className="font-body font-bold text-success text-sm">
-                    🎁 Gift sent to {partnerName}! +{HEARTS.SEND_GIFT} 💝
-                  </p>
-                </motion.div>
-              )}
-
-              {/* Gift type selector */}
-              <div>
-                <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Gift Type</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {GIFT_TYPES.map(({ type, emoji, label, desc, color }) => (
-                    <motion.button
-                      key={type}
-                      whileTap={{ scale: 0.96 }}
-                      onClick={() => setSelectedType(type)}
-                      className={`flex flex-col items-start gap-1 p-3 rounded-2xl border-2 bg-gradient-to-br ${color} text-left transition-all ${
-                        selectedType === type ? 'border-primary shadow-soft' : 'border-transparent'
-                      }`}
-                    >
-                      <span className="text-3xl">{emoji}</span>
-                      <p className="font-body font-bold text-dark text-sm">{label}</p>
-                      <p className="text-[11px] text-muted font-body">{desc}</p>
-                    </motion.button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Message */}
-              <Textarea
-                label={`Your message to ${partnerName} 💌`}
-                placeholder="Write something from the heart… it doesn't have to be perfect 💭"
-                rows={4}
-                value={message}
-                onChange={e => setMessage(e.target.value)}
-              />
-
-              <Button
-                size="lg"
-                fullWidth
-                variant="gradient"
-                loading={sending}
-                disabled={!message.trim()}
-                onClick={handleSend}
-              >
-                Send Gift to {partnerName} 🎁
-              </Button>
-
-              <p className="text-center text-xs text-muted font-body">
-                Sending earns you +{HEARTS.SEND_GIFT} 💝 hearts
+          {/* Success + share link banner */}
+          {sentSuccess && shareLink && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="rounded-2xl bg-success/15 border border-success/30 p-4 flex flex-col gap-3"
+            >
+              <p className="font-body font-bold text-success text-sm text-center">
+                {couple
+                  ? `🎁 Gift sent to ${partnerName}'s inbox! +${HEARTS.SEND_GIFT} 💝`
+                  : '🎁 Gift created!'}
               </p>
-            </>
+              <div className="bg-white rounded-xl p-3 flex flex-col gap-2">
+                <p className="text-xs text-muted font-body">Share this link with anyone:</p>
+                <p className="text-xs font-body text-dark break-all">{shareLink}</p>
+                <button
+                  onClick={copyLink}
+                  className="self-start bg-primary/10 text-primary text-xs font-body font-bold px-3 py-1.5 rounded-lg"
+                >
+                  Copy Link
+                </button>
+              </div>
+              <button
+                onClick={() => { setSentSuccess(false); setShareLink(null) }}
+                className="text-xs text-muted font-body text-center"
+              >
+                Dismiss
+              </button>
+            </motion.div>
           )}
+
+          {/* Gift type selector */}
+          <div>
+            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Gift Type</p>
+            <div className="grid grid-cols-2 gap-2">
+              {GIFT_TYPES.map(({ type, emoji, label, desc, color }) => (
+                <motion.button
+                  key={type}
+                  whileTap={{ scale: 0.96 }}
+                  onClick={() => setSelectedType(type)}
+                  className={`flex flex-col items-start gap-1 p-3 rounded-2xl border-2 bg-gradient-to-br ${color} text-left transition-all ${
+                    selectedType === type ? 'border-primary shadow-soft' : 'border-transparent'
+                  }`}
+                >
+                  <span className="text-3xl">{emoji}</span>
+                  <p className="font-body font-bold text-dark text-sm">{label}</p>
+                  <p className="text-[11px] text-muted font-body">{desc}</p>
+                </motion.button>
+              ))}
+            </div>
+          </div>
+
+          {/* Message */}
+          <Textarea
+            label={couple ? `Your message to ${partnerName} 💌` : 'Your message 💌'}
+            placeholder="Write something from the heart… it doesn't have to be perfect 💭"
+            rows={4}
+            value={message}
+            onChange={e => setMessage(e.target.value)}
+          />
+
+          {/* Optional image upload */}
+          <div>
+            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">
+              Add a Photo (optional)
+            </p>
+            {imagePreview ? (
+              <div className="relative inline-block">
+                <img
+                  src={imagePreview}
+                  alt="Preview"
+                  className="w-24 h-24 object-cover rounded-2xl border-2 border-primary/30"
+                />
+                <button
+                  onClick={clearImage}
+                  className="absolute -top-2 -right-2 bg-dark text-white rounded-full w-5 h-5 flex items-center justify-center text-xs font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 cursor-pointer w-fit">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageChange}
+                />
+                <span className="bg-surface border border-muted/30 text-muted font-body text-sm px-4 py-2 rounded-xl">
+                  Choose photo 📷
+                </span>
+              </label>
+            )}
+          </div>
+
+          <Button
+            size="lg"
+            fullWidth
+            variant="gradient"
+            loading={sending}
+            disabled={!message.trim()}
+            onClick={handleSend}
+          >
+            {couple ? `Send Gift to ${partnerName} 🎁` : 'Create Gift Link 🎁'}
+          </Button>
+
+          <p className="text-center text-xs text-muted font-body">
+            {couple
+              ? `Sending earns you +${HEARTS.SEND_GIFT} 💝 hearts · A shareable link is also generated`
+              : 'Anyone with the link can open your gift'}
+          </p>
         </motion.div>
       )}
 

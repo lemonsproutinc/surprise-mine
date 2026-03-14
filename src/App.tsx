@@ -14,6 +14,7 @@ import Preferences from './screens/onboarding/Preferences'
 import Home from './screens/Home'
 import Questions from './screens/Questions'
 import Gifts from './screens/Gifts'
+import GiftView from './screens/GiftView'
 import Milestones from './screens/Milestones'
 import Profile from './screens/Profile'
 
@@ -67,6 +68,9 @@ function AppRoutes() {
         <Route path="/milestones" element={<Milestones />} />
         <Route path="/profile" element={<Profile />} />
       </Route>
+
+      {/* Public gift view — no auth required */}
+      <Route path="/gift/:giftId" element={<GiftView />} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

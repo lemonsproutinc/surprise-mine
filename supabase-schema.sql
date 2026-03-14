@@ -70,11 +70,14 @@ create table if not exists public.question_answers (
 );
 
 -- ── Gifts ────────────────────────────────────────────────────
+-- Note: to_user_id and couple_id are nullable to support link-only gifts
+-- (sent without a paired partner). When a partner is linked, both fields
+-- are populated and the gift also appears in the partner's inbox.
 create table if not exists public.gifts (
   id              uuid default gen_random_uuid() primary key,
   from_user_id    uuid references public.profiles(id) on delete cascade not null,
-  to_user_id      uuid references public.profiles(id) on delete cascade not null,
-  couple_id       uuid references public.couples(id) on delete cascade not null,
+  to_user_id      uuid references public.profiles(id) on delete cascade,
+  couple_id       uuid references public.couples(id) on delete cascade,
   gift_type       text not null,
   message         text not null,
   photo_url       text,
@@ -82,6 +85,10 @@ create table if not exists public.gifts (
   scheduled_for   timestamptz,
   created_at      timestamptz default now()
 );
+
+-- ── Migration: run these if upgrading an existing database ───
+-- ALTER TABLE public.gifts ALTER COLUMN to_user_id DROP NOT NULL;
+-- ALTER TABLE public.gifts ALTER COLUMN couple_id DROP NOT NULL;
 
 -- ── Milestones ───────────────────────────────────────────────
 create table if not exists public.milestones (
@@ -178,12 +185,20 @@ create policy "answers_select" on public.question_answers for select using (
 );
 create policy "answers_insert" on public.question_answers for insert with check (auth.uid() = user_id);
 
--- Gifts: couple members can read; sender can insert
+-- Gifts: public read by gift ID (UUID is unguessable — used as share token)
+-- Authenticated users can also see gifts they sent or received
+create policy "gifts_public_select" on public.gifts for select to anon using (true);
 create policy "gifts_select" on public.gifts for select using (
   auth.uid() = from_user_id or auth.uid() = to_user_id
 );
 create policy "gifts_insert" on public.gifts for insert with check (auth.uid() = from_user_id);
 create policy "gifts_update" on public.gifts for update using (auth.uid() = to_user_id);
+
+-- ── Storage: gift-images bucket ─────────────────────────────
+-- Run in Supabase Dashboard → Storage, or via SQL:
+-- insert into storage.buckets (id, name, public) values ('gift-images', 'gift-images', true);
+-- create policy "gift_images_insert" on storage.objects for insert to authenticated with check (bucket_id = 'gift-images');
+-- create policy "gift_images_select" on storage.objects for select using (bucket_id = 'gift-images');
 
 -- Milestones: couple members can read/insert/update
 create policy "milestones_select" on public.milestones for select using (
