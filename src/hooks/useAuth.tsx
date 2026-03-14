@@ -88,14 +88,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        loadProfile(session.user.id).finally(() => setLoading(false))
-      } else {
+    // Safety net: if auth never resolves (e.g. missing env vars, network error),
+    // clear loading after 8s so the app doesn't stay permanently on the loading screen.
+    const safetyTimeout = setTimeout(() => setLoading(false), 8000)
+
+    supabase.auth.getSession()
+      .then(({ data: { session } }) => {
+        setUser(session?.user ?? null)
+        if (session?.user) {
+          loadProfile(session.user.id).finally(() => {
+            clearTimeout(safetyTimeout)
+            setLoading(false)
+          })
+        } else {
+          clearTimeout(safetyTimeout)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        clearTimeout(safetyTimeout)
         setLoading(false)
-      }
-    })
+      })
 
     const {
       data: { subscription },
@@ -110,10 +123,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setTotalHearts(0)
         setCurrentStreak(0)
       }
+      clearTimeout(safetyTimeout)
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      clearTimeout(safetyTimeout)
+      subscription.unsubscribe()
+    }
   }, [])
 
   const signUp = async (
