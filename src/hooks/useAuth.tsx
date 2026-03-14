@@ -1,8 +1,10 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react'
 import { User } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { Profile, Couple } from '../types'
 import { getTotalHearts } from '../lib/hearts'
+
+const IDLE_TIMEOUT_MS = 15 * 60 * 1000 // 15 minutes
 
 interface AuthContextType {
   user: User | null
@@ -23,6 +25,7 @@ interface AuthContextType {
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
   refreshHearts: () => Promise<void>
+  linkPartner: (code: string) => Promise<{ error: string | null }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -36,6 +39,18 @@ function generateInviteCode(): string {
   return code
 }
 
+function generateShareToken(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  let token = ''
+  for (let i = 0; i < 8; i++) {
+    token += chars[Math.floor(Math.random() * chars.length)]
+  }
+  return token
+}
+
+// Export for use in gifts
+export { generateShareToken }
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -44,6 +59,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [totalHearts, setTotalHearts] = useState(0)
   const [currentStreak, setCurrentStreak] = useState(0)
   const [loading, setLoading] = useState(true)
+
+  const lastActivityRef = useRef<number>(Date.now())
+  const idleIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const userRef = useRef<User | null>(null)
+
+  // Keep userRef in sync for idle timer closure
+  useEffect(() => {
+    userRef.current = user
+  }, [user])
 
   const loadProfile = async (userId: string) => {
     const { data: profileData, error } = await supabase
@@ -87,6 +111,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (streakData) setCurrentStreak(streakData.current_streak)
   }
 
+  // Idle timer setup
+  const setupIdleTimer = () => {
+    // Track user activity
+    const resetTimer = () => {
+      lastActivityRef.current = Date.now()
+    }
+
+    const events = ['mousemove', 'keydown', 'touchstart', 'scroll', 'click']
+    events.forEach(e => window.addEventListener(e, resetTimer, { passive: true }))
+
+    // Check every 60s if user has been idle for 15min
+    idleIntervalRef.current = setInterval(() => {
+      if (!userRef.current) return
+      const idleTime = Date.now() - lastActivityRef.current
+      if (idleTime >= IDLE_TIMEOUT_MS) {
+        supabase.auth.signOut()
+      }
+    }, 60_000)
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, resetTimer))
+      if (idleIntervalRef.current) clearInterval(idleIntervalRef.current)
+    }
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
@@ -113,7 +162,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    return () => subscription.unsubscribe()
+    const cleanupIdle = setupIdleTimer()
+
+    return () => {
+      subscription.unsubscribe()
+      cleanupIdle()
+    }
   }, [])
 
   const signUp = async (
@@ -169,6 +223,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const linkPartner = async (code: string): Promise<{ error: string | null }> => {
+    if (!user || !profile) return { error: 'Not signed in' }
+
+    // Validate the invite code
+    const { data: inviteData, error: inviteError } = await supabase
+      .from('invite_codes')
+      .select('*, creator:creator_id(id, name)')
+      .eq('code', code.toUpperCase().trim())
+      .eq('used', false)
+      .single()
+
+    if (inviteError || !inviteData) {
+      return { error: 'Invalid or already used invite code.' }
+    }
+
+    if (inviteData.creator_id === user.id) {
+      return { error: "That's your own invite code! Share it with your partner." }
+    }
+
+    const partnerId = inviteData.creator_id
+
+    // Create the couple
+    const { data: coupleData, error: coupleError } = await supabase
+      .from('couples')
+      .insert({ user1_id: partnerId, user2_id: user.id })
+      .select()
+      .single()
+
+    if (coupleError || !coupleData) {
+      return { error: 'Failed to create couple. Please try again.' }
+    }
+
+    // Update both profiles with couple_id
+    await supabase.from('profiles').update({ couple_id: coupleData.id }).eq('id', user.id)
+    await supabase.from('profiles').update({ couple_id: coupleData.id }).eq('id', partnerId)
+
+    // Mark invite code as used
+    await supabase
+      .from('invite_codes')
+      .update({ used: true, used_by: user.id })
+      .eq('code', code.toUpperCase().trim())
+
+    // Deliver pending gifts from current user to partner
+    await supabase
+      .from('gifts')
+      .update({ to_user_id: partnerId, couple_id: coupleData.id, pending: false })
+      .eq('from_user_id', user.id)
+      .eq('pending', true)
+
+    // Deliver pending gifts from partner to current user
+    await supabase
+      .from('gifts')
+      .update({ to_user_id: user.id, couple_id: coupleData.id, pending: false })
+      .eq('from_user_id', partnerId)
+      .eq('pending', true)
+
+    // Migrate solo milestones to couple
+    await supabase
+      .from('milestones')
+      .update({ couple_id: coupleData.id })
+      .eq('created_by', user.id)
+      .is('couple_id', null)
+
+    await supabase
+      .from('milestones')
+      .update({ couple_id: coupleData.id })
+      .eq('created_by', partnerId)
+      .is('couple_id', null)
+
+    // Migrate solo daily questions to couple
+    await supabase
+      .from('daily_questions')
+      .update({ couple_id: coupleData.id, user_id: null })
+      .eq('user_id', user.id)
+      .is('couple_id', null)
+
+    // Refresh profile to get updated couple/partner data
+    await loadProfile(user.id)
+
+    return { error: null }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -184,6 +320,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signOut,
         refreshProfile,
         refreshHearts,
+        linkPartner,
       }}
     >
       {children}

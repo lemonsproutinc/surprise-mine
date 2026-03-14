@@ -7,6 +7,7 @@ export interface Profile {
   partner_name?: string
   invite_code?: string
   couple_id?: string
+  relationship_start_date?: string
   created_at: string
 }
 
@@ -27,7 +28,8 @@ export interface Question {
 
 export interface DailyQuestion {
   id: string
-  couple_id: string
+  couple_id?: string
+  user_id?: string
   question_id: string
   assigned_date: string
   question?: Question
@@ -41,17 +43,27 @@ export interface QuestionAnswer {
   created_at: string
 }
 
+export interface QuestionRating {
+  id: string
+  daily_question_id: string
+  user_id: string
+  rating: number
+  created_at: string
+}
+
 export type GiftType = 'gift_box' | 'love_letter' | 'balloon' | 'fortune_cookie'
 
 export interface Gift {
   id: string
   from_user_id: string
-  to_user_id: string
-  couple_id: string
+  to_user_id?: string
+  couple_id?: string
   gift_type: GiftType
   message: string
   photo_url?: string
   opened: boolean
+  pending?: boolean
+  share_token?: string
   scheduled_for?: string
   created_at: string
   from_profile?: Profile
@@ -59,7 +71,8 @@ export interface Gift {
 
 export interface Milestone {
   id: string
-  couple_id: string
+  couple_id?: string
+  user_id?: string
   title: string
   milestone_date: string
   note?: string

@@ -12,5 +12,13 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
+  supabaseAnonKey || 'placeholder-key',
+  {
+    auth: {
+      // Use sessionStorage so auth clears when browser window/tabs close
+      storage: typeof window !== 'undefined' ? window.sessionStorage : undefined,
+      autoRefreshToken: true,
+      persistSession: true,
+    },
+  }
 )

@@ -62,3 +62,82 @@
     -webkit-backdrop-filter: blur(12px);
   }
 }
+
+/* ── CSS Animations (replaces Framer Motion looping animations) ── */
+@keyframes pulse-heart {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.2); }
+}
+
+@keyframes rotate-gentle {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(4deg); }
+  75% { transform: rotate(-4deg); }
+}
+
+@keyframes bounce-sparkle {
+  0%, 100% { opacity: 0; transform: scale(0.5) translateY(0); }
+  50% { opacity: 1; transform: scale(1.2) translateY(-12px); }
+}
+
+@keyframes wiggle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  20% { transform: rotate(-8deg) scale(1.05); }
+  40% { transform: rotate(8deg) scale(1.05); }
+  60% { transform: rotate(-5deg) scale(1.02); }
+  80% { transform: rotate(5deg) scale(1.02); }
+}
+
+@keyframes gift-pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+
+@keyframes float-up {
+  0% { transform: translateY(0px); opacity: 1; }
+  100% { transform: translateY(-20px); opacity: 0; }
+}
+
+@keyframes shimmer {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+@keyframes crack-glow {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.4) drop-shadow(0 0 8px #FFD93D); }
+}
+
+.animate-pulse-heart {
+  animation: pulse-heart 2s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-rotate-gentle {
+  animation: rotate-gentle 5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-bounce-sparkle {
+  animation: bounce-sparkle 2.5s ease-out infinite;
+  will-change: transform, opacity;
+}
+
+.animate-wiggle {
+  animation: wiggle 2.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-gift-pulse {
+  animation: gift-pulse 2s ease-in-out infinite;
+  will-change: transform;
+}
+
+.animate-shimmer {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.animate-crack-glow {
+  animation: crack-glow 1.5s ease-in-out infinite;
+}

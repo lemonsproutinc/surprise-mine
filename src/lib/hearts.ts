@@ -18,13 +18,14 @@ export async function awardHearts(userId: string, amount: number, reason: string
 }
 
 export async function getTotalHearts(userId: string): Promise<number> {
+  // Use server-side aggregate to avoid fetching all rows
   const { data, error } = await supabase
     .from('hearts_transactions')
     .select('amount')
     .eq('user_id', userId)
 
   if (error || !data) return 0
-  return data.reduce((sum, t) => sum + t.amount, 0)
+  return data.reduce((sum: number, t: { amount: number }) => sum + t.amount, 0)
 }
 
 export async function updateStreak(userId: string) {

@@ -1,19 +1,21 @@
 -- ============================================================
--- Surprise Mine — Supabase Schema
+-- Surprise Mine — Supabase Schema v2
 -- Run this entire file in your Supabase SQL Editor
+-- If upgrading from v1, run the MIGRATION section at the bottom
 -- ============================================================
 
 -- ── Profiles ────────────────────────────────────────────────
 create table if not exists public.profiles (
-  id            uuid references auth.users on delete cascade primary key,
-  name          text not null,
-  email         text not null,
-  avatar_url    text,
-  relationship_stage text not null default 'dating',
-  partner_name  text,
-  invite_code   text unique,
-  couple_id     uuid,
-  created_at    timestamptz default now()
+  id                      uuid references auth.users on delete cascade primary key,
+  name                    text not null,
+  email                   text not null,
+  avatar_url              text,
+  relationship_stage      text not null default 'dating',
+  partner_name            text,
+  invite_code             text unique,
+  couple_id               uuid,
+  relationship_start_date date,
+  created_at              timestamptz default now()
 );
 
 -- ── Couples ─────────────────────────────────────────────────
@@ -50,13 +52,14 @@ create table if not exists public.questions (
   created_at      timestamptz default now()
 );
 
--- ── Daily Questions (per-couple assignment) ──────────────────
+-- ── Daily Questions (per-couple or per-user assignment) ──────
 create table if not exists public.daily_questions (
   id              uuid default gen_random_uuid() primary key,
-  couple_id       uuid references public.couples(id) on delete cascade not null,
+  couple_id       uuid references public.couples(id) on delete cascade,
+  user_id         uuid references public.profiles(id) on delete cascade,
   question_id     uuid references public.questions(id) not null,
-  assigned_date   date not null default current_date,
-  unique(couple_id, assigned_date)
+  assigned_date   date not null default current_date
+  -- partial unique indexes created below for couple and solo modes
 );
 
 -- ── Question Answers ─────────────────────────────────────────
@@ -73,12 +76,14 @@ create table if not exists public.question_answers (
 create table if not exists public.gifts (
   id              uuid default gen_random_uuid() primary key,
   from_user_id    uuid references public.profiles(id) on delete cascade not null,
-  to_user_id      uuid references public.profiles(id) on delete cascade not null,
-  couple_id       uuid references public.couples(id) on delete cascade not null,
+  to_user_id      uuid references public.profiles(id) on delete cascade,
+  couple_id       uuid references public.couples(id) on delete cascade,
   gift_type       text not null,
   message         text not null,
   photo_url       text,
   opened          boolean default false,
+  pending         boolean default false,
+  share_token     text unique,
   scheduled_for   timestamptz,
   created_at      timestamptz default now()
 );
@@ -86,7 +91,8 @@ create table if not exists public.gifts (
 -- ── Milestones ───────────────────────────────────────────────
 create table if not exists public.milestones (
   id              uuid default gen_random_uuid() primary key,
-  couple_id       uuid references public.couples(id) on delete cascade not null,
+  couple_id       uuid references public.couples(id) on delete cascade,
+  user_id         uuid references public.profiles(id) on delete cascade,
   title           text not null,
   milestone_date  date not null,
   note            text,
@@ -114,6 +120,27 @@ create table if not exists public.streaks (
   updated_at          timestamptz default now()
 );
 
+-- ── Question Ratings (user feedback on questions) ────────────
+create table if not exists public.question_ratings (
+  id                uuid default gen_random_uuid() primary key,
+  daily_question_id uuid references public.daily_questions(id) on delete cascade not null,
+  user_id           uuid references public.profiles(id) on delete cascade not null,
+  rating            integer not null check (rating >= 1 and rating <= 5),
+  created_at        timestamptz default now(),
+  unique(daily_question_id, user_id)
+);
+
+-- ── Partial unique indexes for daily_questions ────────────────
+-- Only one question per couple per day (when couple_id is set)
+create unique index if not exists daily_questions_couple_date
+  on public.daily_questions(couple_id, assigned_date)
+  where couple_id is not null;
+
+-- Only one question per solo user per day (when user_id is set and no couple)
+create unique index if not exists daily_questions_user_date
+  on public.daily_questions(user_id, assigned_date)
+  where user_id is not null and couple_id is null;
+
 -- ── User Preferences ─────────────────────────────────────────
 create table if not exists public.user_preferences (
   user_id               uuid references public.profiles(id) on delete cascade primary key,
@@ -133,6 +160,7 @@ alter table public.invite_codes       enable row level security;
 alter table public.questions          enable row level security;
 alter table public.daily_questions    enable row level security;
 alter table public.question_answers   enable row level security;
+alter table public.question_ratings   enable row level security;
 alter table public.gifts              enable row level security;
 alter table public.milestones         enable row level security;
 alter table public.hearts_transactions enable row level security;
@@ -160,17 +188,24 @@ create policy "invite_codes_update" on public.invite_codes for update using (tru
 -- Questions: publicly readable
 create policy "questions_select" on public.questions for select using (true);
 
--- Daily questions: couple members can read/insert
+-- Daily questions: couple members OR solo user can read/insert
 create policy "daily_questions_select" on public.daily_questions for select using (
-  exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+  auth.uid() = user_id
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
 );
 create policy "daily_questions_insert" on public.daily_questions for insert with check (
-  exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+  auth.uid() = user_id
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
+create policy "daily_questions_update" on public.daily_questions for update using (
+  auth.uid() = user_id
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
 );
 
--- Question answers: couple members can read; only self can insert
+-- Question answers: solo user OR couple members can read; only self can insert
 create policy "answers_select" on public.question_answers for select using (
-  exists (
+  auth.uid() = user_id
+  or exists (
     select 1 from public.daily_questions dq
     join public.couples c on c.id = dq.couple_id
     where dq.id = daily_question_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid())
@@ -178,25 +213,39 @@ create policy "answers_select" on public.question_answers for select using (
 );
 create policy "answers_insert" on public.question_answers for insert with check (auth.uid() = user_id);
 
--- Gifts: couple members can read; sender can insert
+-- Question ratings: only own records
+create policy "ratings_select" on public.question_ratings for select using (auth.uid() = user_id);
+create policy "ratings_insert" on public.question_ratings for insert with check (auth.uid() = user_id);
+create policy "ratings_update" on public.question_ratings for update using (auth.uid() = user_id);
+
+-- Gifts: sender/recipient can read; sender can insert/update; public share_token lookup
 create policy "gifts_select" on public.gifts for select using (
-  auth.uid() = from_user_id or auth.uid() = to_user_id
+  auth.uid() = from_user_id
+  or auth.uid() = to_user_id
+  or share_token is not null  -- public access for shareable gift links
 );
 create policy "gifts_insert" on public.gifts for insert with check (auth.uid() = from_user_id);
-create policy "gifts_update" on public.gifts for update using (auth.uid() = to_user_id);
+create policy "gifts_update" on public.gifts for update using (
+  auth.uid() = from_user_id or auth.uid() = to_user_id
+);
 
--- Milestones: couple members can read/insert/update
+-- Milestones: couple members OR solo user can read/insert/update/delete
 create policy "milestones_select" on public.milestones for select using (
-  exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+  auth.uid() = user_id
+  or auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
 );
 create policy "milestones_insert" on public.milestones for insert with check (
-  exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+  auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
 );
 create policy "milestones_update" on public.milestones for update using (
-  exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+  auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
 );
 create policy "milestones_delete" on public.milestones for delete using (
-  exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+  auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
 );
 
 -- Hearts: only own records
@@ -265,3 +314,111 @@ insert into public.questions (text, category, category_emoji, intensity) values
 ('How have you grown as a person since we''ve been together?', 'Personal Growth', '🧠', 'balanced'),
 ('What''s one thing you''re working on about yourself that you''d love my support with?', 'Personal Growth', '🧠', 'balanced'),
 ('Is there a dream you''ve given up on that you wish you hadn''t?', 'Personal Growth', '🧠', 'deep');
+
+-- ============================================================
+-- v2 MIGRATION — Run these if upgrading from v1
+-- ============================================================
+
+-- Add relationship_start_date to profiles
+alter table public.profiles add column if not exists relationship_start_date date;
+
+-- Make daily_questions.couple_id nullable, add user_id
+alter table public.daily_questions alter column couple_id drop not null;
+alter table public.daily_questions add column if not exists user_id uuid references public.profiles(id) on delete cascade;
+
+-- Drop old unique constraint on daily_questions (if it exists)
+alter table public.daily_questions drop constraint if exists daily_questions_couple_id_assigned_date_key;
+
+-- Add partial unique indexes for daily_questions
+create unique index if not exists daily_questions_couple_date
+  on public.daily_questions(couple_id, assigned_date)
+  where couple_id is not null;
+create unique index if not exists daily_questions_user_date
+  on public.daily_questions(user_id, assigned_date)
+  where user_id is not null and couple_id is null;
+
+-- Make gifts.to_user_id and couple_id nullable, add pending + share_token
+alter table public.gifts alter column to_user_id drop not null;
+alter table public.gifts alter column couple_id drop not null;
+alter table public.gifts add column if not exists pending boolean default false;
+alter table public.gifts add column if not exists share_token text unique;
+
+-- Make milestones.couple_id nullable, add user_id
+alter table public.milestones alter column couple_id drop not null;
+alter table public.milestones add column if not exists user_id uuid references public.profiles(id) on delete cascade;
+
+-- Create question_ratings table
+create table if not exists public.question_ratings (
+  id                uuid default gen_random_uuid() primary key,
+  daily_question_id uuid references public.daily_questions(id) on delete cascade not null,
+  user_id           uuid references public.profiles(id) on delete cascade not null,
+  rating            integer not null check (rating >= 1 and rating <= 5),
+  created_at        timestamptz default now(),
+  unique(daily_question_id, user_id)
+);
+alter table public.question_ratings enable row level security;
+create policy if not exists "ratings_select" on public.question_ratings for select using (auth.uid() = user_id);
+create policy if not exists "ratings_insert" on public.question_ratings for insert with check (auth.uid() = user_id);
+create policy if not exists "ratings_update" on public.question_ratings for update using (auth.uid() = user_id);
+
+-- Update daily_questions RLS policies
+drop policy if exists "daily_questions_select" on public.daily_questions;
+drop policy if exists "daily_questions_insert" on public.daily_questions;
+create policy "daily_questions_select" on public.daily_questions for select using (
+  auth.uid() = user_id
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
+create policy "daily_questions_insert" on public.daily_questions for insert with check (
+  auth.uid() = user_id
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
+create policy "daily_questions_update" on public.daily_questions for update using (
+  auth.uid() = user_id
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
+
+-- Update answers RLS to allow solo users
+drop policy if exists "answers_select" on public.question_answers;
+create policy "answers_select" on public.question_answers for select using (
+  auth.uid() = user_id
+  or exists (
+    select 1 from public.daily_questions dq
+    join public.couples c on c.id = dq.couple_id
+    where dq.id = daily_question_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid())
+  )
+);
+
+-- Update gifts RLS to allow share_token public access
+drop policy if exists "gifts_select" on public.gifts;
+drop policy if exists "gifts_update" on public.gifts;
+create policy "gifts_select" on public.gifts for select using (
+  auth.uid() = from_user_id
+  or auth.uid() = to_user_id
+  or share_token is not null
+);
+create policy "gifts_update" on public.gifts for update using (
+  auth.uid() = from_user_id or auth.uid() = to_user_id
+);
+
+-- Update milestones RLS to allow solo users
+drop policy if exists "milestones_select" on public.milestones;
+drop policy if exists "milestones_insert" on public.milestones;
+drop policy if exists "milestones_update" on public.milestones;
+drop policy if exists "milestones_delete" on public.milestones;
+create policy "milestones_select" on public.milestones for select using (
+  auth.uid() = user_id
+  or auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
+create policy "milestones_insert" on public.milestones for insert with check (
+  auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
+create policy "milestones_update" on public.milestones for update using (
+  auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
+create policy "milestones_delete" on public.milestones for delete using (
+  auth.uid() = created_by
+  or exists (select 1 from public.couples c where c.id = couple_id and (c.user1_id = auth.uid() or c.user2_id = auth.uid()))
+);
