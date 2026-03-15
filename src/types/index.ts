@@ -7,6 +7,15 @@ export interface Profile {
   partner_name?: string
   invite_code?: string
   couple_id?: string
+  relationship_start_date?: string
+  created_at: string
+}
+
+export interface Feedback {
+  id: string
+  user_id: string
+  rating: number
+  message: string
   created_at: string
 }
 

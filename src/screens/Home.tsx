@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { DailyQuestion, QuestionAnswer, Gift, Milestone } from '../types'
 import Card from '../components/ui/Card'
-import { format, differenceInDays, parseISO } from 'date-fns'
+import Button from '../components/ui/Button'
+import { Textarea } from '../components/ui/Input'
+import { format, differenceInDays, parseISO, startOfDay } from 'date-fns'
 
 const quickActions = [
   { emoji: '🎁', label: 'Send Gift', path: '/gifts' },
@@ -25,10 +27,52 @@ export default function Home() {
   const [upcomingMilestones, setUpcomingMilestones] = useState<Milestone[]>([])
   const [loading, setLoading] = useState(true)
 
+  // Feedback state
+  const [feedbackRating, setFeedbackRating] = useState(0)
+  const [feedbackMessage, setFeedbackMessage] = useState('')
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false)
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false)
+  const [feedbackDailyCount, setFeedbackDailyCount] = useState(0)
+  const FEEDBACK_DAILY_LIMIT = 5
+
   useEffect(() => {
     if (!user || !couple) { setLoading(false); return }
     loadHomeData()
   }, [user, couple])
+
+  useEffect(() => {
+    if (!user) return
+    loadFeedbackCount()
+  }, [user])
+
+  const loadFeedbackCount = async () => {
+    if (!user) return
+    const todayStart = startOfDay(new Date()).toISOString()
+    const { count } = await supabase
+      .from('feedback')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .gte('created_at', todayStart)
+    setFeedbackDailyCount(count ?? 0)
+  }
+
+  const handleFeedbackSubmit = async () => {
+    if (!user || feedbackRating === 0 || !feedbackMessage.trim()) return
+    if (feedbackDailyCount >= FEEDBACK_DAILY_LIMIT) return
+    setFeedbackSubmitting(true)
+
+    const { error } = await supabase.from('feedback').insert({
+      user_id: user.id,
+      rating: feedbackRating,
+      message: feedbackMessage.trim(),
+    })
+
+    if (!error) {
+      setFeedbackSubmitted(true)
+      setFeedbackDailyCount(prev => prev + 1)
+    }
+    setFeedbackSubmitting(false)
+  }
 
   const loadHomeData = async () => {
     if (!user || !couple) return
@@ -304,7 +348,7 @@ export default function Home() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
-        className="grid grid-cols-3 gap-2"
+        className="grid grid-cols-3 gap-2 mb-4"
       >
         {[
           { emoji: '💝', label: 'Hearts', value: totalHearts },
@@ -317,6 +361,87 @@ export default function Home() {
             <div className="text-[10px] text-muted font-body mt-0.5">{label}</div>
           </Card>
         ))}
+      </motion.div>
+
+      {/* Feedback card */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.5 }}
+      >
+        <Card className="border-2 border-dashed border-secondary/30">
+          <AnimatePresence mode="wait">
+            {feedbackSubmitted ? (
+              <motion.div
+                key="success"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="text-center py-2"
+              >
+                <div className="text-4xl mb-2">🙏</div>
+                <p className="font-body font-bold text-dark text-sm">We've received your feedback!</p>
+                <p className="text-xs text-muted font-body mt-1">Thank you for helping us improve 💕</p>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="form"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="flex flex-col gap-3"
+              >
+                <div className="text-center">
+                  <p className="font-body font-bold text-dark text-sm mb-0.5">Are you enjoying Surprise Mine? 💝</p>
+                  <p className="text-xs text-muted font-body">Rate us out of 5 stars</p>
+                </div>
+
+                {/* Star rating */}
+                <div className="flex justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <motion.button
+                      key={star}
+                      whileTap={{ scale: 0.85 }}
+                      onClick={() => setFeedbackRating(star)}
+                      className="text-3xl transition-transform"
+                    >
+                      {star <= feedbackRating ? '⭐' : '☆'}
+                    </motion.button>
+                  ))}
+                </div>
+
+                <Textarea
+                  placeholder="Write what you like about this app, or what you would want added/changed!"
+                  rows={3}
+                  value={feedbackMessage}
+                  onChange={e => setFeedbackMessage(e.target.value)}
+                />
+
+                {feedbackDailyCount >= FEEDBACK_DAILY_LIMIT ? (
+                  <p className="text-center text-xs text-muted font-body bg-surface rounded-xl py-2">
+                    You've reached today's feedback limit. Come back tomorrow! 😊
+                  </p>
+                ) : (
+                  <Button
+                    fullWidth
+                    variant="gradient"
+                    loading={feedbackSubmitting}
+                    disabled={feedbackRating === 0 || !feedbackMessage.trim()}
+                    onClick={handleFeedbackSubmit}
+                  >
+                    Submit Feedback ✨
+                  </Button>
+                )}
+
+                {feedbackDailyCount > 0 && feedbackDailyCount < FEEDBACK_DAILY_LIMIT && (
+                  <p className="text-center text-[10px] text-muted font-body">
+                    {FEEDBACK_DAILY_LIMIT - feedbackDailyCount} submission{FEEDBACK_DAILY_LIMIT - feedbackDailyCount !== 1 ? 's' : ''} remaining today
+                  </p>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </Card>
       </motion.div>
     </div>
   )

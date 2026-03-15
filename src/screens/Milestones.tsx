@@ -49,27 +49,40 @@ export default function Milestones() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!couple) { setLoading(false); return }
+    if (!user) { setLoading(false); return }
     loadMilestones()
-  }, [couple])
+  }, [user, couple])
 
   const loadMilestones = async () => {
-    if (!couple) return
-    const { data } = await supabase
-      .from('milestones')
-      .select('*')
-      .eq('couple_id', couple.id)
-      .order('milestone_date', { ascending: false })
-    setMilestones(data ?? [])
+    if (!user) return
+
+    if (couple) {
+      // Load shared couple milestones
+      const { data } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('couple_id', couple.id)
+        .order('milestone_date', { ascending: false })
+      setMilestones(data ?? [])
+    } else {
+      // Load personal milestones (no couple yet)
+      const { data } = await supabase
+        .from('milestones')
+        .select('*')
+        .eq('created_by', user.id)
+        .is('couple_id', null)
+        .order('milestone_date', { ascending: false })
+      setMilestones(data ?? [])
+    }
     setLoading(false)
   }
 
   const handleSave = async () => {
-    if (!title || !date || !couple || !user) return
+    if (!title || !date || !user) return
     setSaving(true)
 
     const { error } = await supabase.from('milestones').insert({
-      couple_id: couple.id,
+      couple_id: couple?.id ?? null,
       title,
       milestone_date: date,
       note: note || null,
@@ -106,7 +119,9 @@ export default function Milestones() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="font-display text-2xl text-dark">Milestones 🏆</h1>
-          <p className="text-xs text-muted font-body">Your journey together</p>
+          <p className="text-xs text-muted font-body">
+            {couple ? 'Your journey together' : 'Your personal milestones'}
+          </p>
         </div>
         <motion.button
           whileTap={{ scale: 0.93 }}
@@ -118,136 +133,136 @@ export default function Milestones() {
       </div>
 
       {!couple && (
-        <div className="text-center py-16">
-          <div className="text-5xl mb-3">💑</div>
-          <p className="font-body font-bold text-dark">Pair up first!</p>
-          <p className="text-sm text-muted font-body mt-1">Milestones are shared with your partner.</p>
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-4 rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3"
+        >
+          <p className="text-xs font-body text-primary/80">
+            💌 Milestones you add now will be shared with your partner once you connect.
+          </p>
+        </motion.div>
+      )}
+
+      {/* Upcoming milestones */}
+      {upcoming.length > 0 && (
+        <div className="mb-5">
+          <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Upcoming</p>
+          <div className="flex flex-col gap-2">
+            {upcoming.map((m, i) => {
+              const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
+              return (
+                <motion.div
+                  key={m.id}
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <Card className="border-l-4 border-tertiary">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">{typeInfo?.emoji ?? '⭐'}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-body font-bold text-dark text-sm">{m.title}</p>
+                        <p className="text-xs text-muted font-body">
+                          {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeUntil(m.milestone_date)}
+                        </p>
+                      </div>
+                    </div>
+                  </Card>
+                </motion.div>
+              )
+            })}
+          </div>
         </div>
       )}
 
-      {couple && (
-        <>
-          {/* Upcoming milestones */}
-          {upcoming.length > 0 && (
-            <div className="mb-5">
-              <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Upcoming</p>
-              <div className="flex flex-col gap-2">
-                {upcoming.map((m, i) => {
-                  const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
-                  return (
-                    <motion.div
-                      key={m.id}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.05 }}
-                    >
-                      <Card className="border-l-4 border-tertiary">
-                        <div className="flex items-center gap-3">
-                          <span className="text-2xl">{typeInfo?.emoji ?? '⭐'}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="font-body font-bold text-dark text-sm">{m.title}</p>
-                            <p className="text-xs text-muted font-body">
-                              {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeUntil(m.milestone_date)}
+      {/* Timeline — past milestones */}
+      {past.length === 0 && upcoming.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="text-5xl mb-3">🌱</div>
+          <p className="font-body font-bold text-dark">No milestones yet!</p>
+          <p className="text-sm text-muted font-body mt-1 mb-4">
+            Start logging your journey — every moment counts 💕
+          </p>
+          <Button variant="gradient" onClick={() => setShowForm(true)}>
+            Add Your First Milestone ✨
+          </Button>
+        </div>
+      ) : (
+        <div>
+          {past.length > 0 && (
+            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Timeline</p>
+          )}
+          <div className="relative flex flex-col gap-0">
+            {past.map((m, i) => {
+              const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
+              const isFirst = i === 0
+              const isLast = i === past.length - 1
+
+              return (
+                <motion.div
+                  key={m.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                  className="flex gap-4"
+                >
+                  {/* Timeline line + dot */}
+                  <div className="flex flex-col items-center w-8 flex-shrink-0">
+                    {!isFirst && <div className="w-0.5 h-4 bg-surface" />}
+                    <div className="w-8 h-8 rounded-full gradient-brand flex items-center justify-center text-sm flex-shrink-0 shadow-soft">
+                      {typeInfo?.emoji ?? '⭐'}
+                    </div>
+                    {!isLast && <div className="w-0.5 flex-1 bg-surface min-h-[16px]" />}
+                  </div>
+
+                  {/* Card */}
+                  <div className="flex-1 pb-4">
+                    <Card padding="md" className="group">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-body font-bold text-dark text-sm">{m.title}</p>
+                          <p className="text-xs text-muted font-body mt-0.5">
+                            {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeAgo(m.milestone_date)}
+                          </p>
+                          {m.note && (
+                            <p className="text-xs text-dark font-body mt-2 leading-relaxed italic">
+                              "{m.note}"
                             </p>
-                          </div>
+                          )}
                         </div>
-                      </Card>
-                    </motion.div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Timeline — past milestones */}
-          {past.length === 0 && upcoming.length === 0 ? (
-            <div className="text-center py-16">
-              <div className="text-5xl mb-3">🌱</div>
-              <p className="font-body font-bold text-dark">No milestones yet!</p>
-              <p className="text-sm text-muted font-body mt-1 mb-4">
-                Start logging your journey together — every moment counts 💕
-              </p>
-              <Button variant="gradient" onClick={() => setShowForm(true)}>
-                Add Your First Milestone ✨
-              </Button>
-            </div>
-          ) : (
-            <div>
-              {past.length > 0 && (
-                <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Timeline</p>
-              )}
-              <div className="relative flex flex-col gap-0">
-                {past.map((m, i) => {
-                  const typeInfo = MILESTONE_TYPES.find(t => t.value === m.milestone_type)
-                  const isFirst = i === 0
-                  const isLast = i === past.length - 1
-
-                  return (
-                    <motion.div
-                      key={m.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: i * 0.06 }}
-                      className="flex gap-4"
-                    >
-                      {/* Timeline line + dot */}
-                      <div className="flex flex-col items-center w-8 flex-shrink-0">
-                        {!isFirst && <div className="w-0.5 h-4 bg-surface" />}
-                        <div className="w-8 h-8 rounded-full gradient-brand flex items-center justify-center text-sm flex-shrink-0 shadow-soft">
-                          {typeInfo?.emoji ?? '⭐'}
-                        </div>
-                        {!isLast && <div className="w-0.5 flex-1 bg-surface min-h-[16px]" />}
+                        <button
+                          onClick={() => handleDelete(m.id)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-red-400 text-xs p-1"
+                        >
+                          ✕
+                        </button>
                       </div>
-
-                      {/* Card */}
-                      <div className="flex-1 pb-4">
-                        <Card padding="md" className="group">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex-1 min-w-0">
-                              <p className="font-body font-bold text-dark text-sm">{m.title}</p>
-                              <p className="text-xs text-muted font-body mt-0.5">
-                                {format(parseISO(m.milestone_date), 'MMMM d, yyyy')} · {timeAgo(m.milestone_date)}
-                              </p>
-                              {m.note && (
-                                <p className="text-xs text-dark font-body mt-2 leading-relaxed italic">
-                                  "{m.note}"
-                                </p>
-                              )}
-                            </div>
-                            <button
-                              onClick={() => handleDelete(m.id)}
-                              className="opacity-0 group-hover:opacity-100 transition-opacity text-muted hover:text-red-400 text-xs p-1"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </Card>
-                      </div>
-                    </motion.div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-        </>
+                    </Card>
+                  </div>
+                </motion.div>
+              )
+            })}
+          </div>
+        </div>
       )}
 
-      {/* Add milestone sheet */}
+      {/* Add milestone modal — positioned at top */}
       <AnimatePresence>
         {showForm && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-dark/60 backdrop-blur-sm z-50 flex items-end justify-center"
+            className="fixed inset-0 bg-dark/60 backdrop-blur-sm z-50 flex items-start justify-center pt-8 px-4"
             onClick={e => { if (e.target === e.currentTarget) setShowForm(false) }}
           >
             <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
               transition={{ type: 'spring', damping: 30, stiffness: 400 }}
-              className="bg-background rounded-t-3xl p-6 w-full max-w-[430px] max-h-[90vh] overflow-y-auto"
+              className="bg-background rounded-3xl p-6 w-full max-w-[430px] max-h-[90vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-5">
                 <h2 className="font-display text-xl text-dark">Add Milestone</h2>

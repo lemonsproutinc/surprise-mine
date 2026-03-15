@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { DailyQuestion, QuestionAnswer } from '../types'
+import { DailyQuestion, Question, QuestionAnswer } from '../types'
 import { awardHearts, updateStreak, HEARTS } from '../lib/hearts'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
@@ -17,10 +17,18 @@ interface HistoryItem {
   partnerAnswer?: QuestionAnswer
 }
 
+const intensityColor = {
+  light: 'bg-green-100 text-green-700',
+  balanced: 'bg-blue-100 text-blue-700',
+  deep: 'bg-purple-100 text-purple-700',
+}
+
 export default function Questions() {
   const { user, couple, partnerProfile, refreshHearts } = useAuth()
 
   const [dailyQuestion, setDailyQuestion] = useState<DailyQuestion | null>(null)
+  // For solo preview (no couple), we show a random question without DB
+  const [soloQuestion, setSoloQuestion] = useState<Question | null>(null)
   const [myAnswer, setMyAnswer] = useState<QuestionAnswer | null>(null)
   const [partnerAnswer, setPartnerAnswer] = useState<QuestionAnswer | null>(null)
   const [answerText, setAnswerText] = useState('')
@@ -29,14 +37,35 @@ export default function Questions() {
   const [heartsEarned, setHeartsEarned] = useState(0)
   const [history, setHistory] = useState<HistoryItem[]>([])
   const [tab, setTab] = useState<'today' | 'history'>('today')
+  const [skipping, setSkipping] = useState(false)
 
   const partnerName = partnerProfile?.name?.split(' ')[0] ?? 'your partner'
 
   useEffect(() => {
-    if (!user || !couple) { setState('unanswered'); return }
-    loadTodayQuestion()
-    loadHistory()
+    if (!user) { setState('unanswered'); return }
+    if (couple) {
+      loadTodayQuestion()
+      loadHistory()
+    } else {
+      loadSoloQuestion()
+    }
   }, [user, couple])
+
+  const getRandomQuestion = async (excludeId?: string): Promise<Question | null> => {
+    const { data: questions } = await supabase
+      .from('questions')
+      .select('*')
+      .limit(200)
+    if (!questions || questions.length === 0) return null
+    const pool = excludeId ? questions.filter(q => q.id !== excludeId) : questions
+    return pool[Math.floor(Math.random() * pool.length)] ?? null
+  }
+
+  const loadSoloQuestion = async () => {
+    const q = await getRandomQuestion()
+    setSoloQuestion(q)
+    setState('unanswered')
+  }
 
   const loadTodayQuestion = async () => {
     if (!user || !couple) return
@@ -51,12 +80,11 @@ export default function Questions() {
       .single()
 
     if (!dq) {
-      const { data: questions } = await supabase.from('questions').select('id').limit(100)
-      if (questions && questions.length > 0) {
-        const randomQ = questions[Math.floor(Math.random() * questions.length)]
+      const q = await getRandomQuestion()
+      if (q) {
         const { data: newDq } = await supabase
           .from('daily_questions')
-          .insert({ couple_id: couple.id, question_id: randomQ.id, assigned_date: today })
+          .insert({ couple_id: couple.id, question_id: q.id, assigned_date: today })
           .select('*, question:question_id(*)')
           .single()
         dq = newDq
@@ -92,7 +120,7 @@ export default function Questions() {
       .eq('couple_id', couple.id)
       .lt('assigned_date', today)
       .order('assigned_date', { ascending: false })
-      .limit(20)
+      .limit(50)
 
     if (!dqs) return
 
@@ -112,6 +140,44 @@ export default function Questions() {
     setHistory(items)
   }
 
+  const handleSkip = async () => {
+    if (!user) return
+    setSkipping(true)
+    setAnswerText('')
+
+    if (couple && dailyQuestion) {
+      // Replace today's question with a new one
+      const today = new Date().toISOString().split('T')[0]
+      const q = await getRandomQuestion(dailyQuestion.question_id)
+      if (q) {
+        // Delete old daily question assignment
+        await supabase
+          .from('daily_questions')
+          .delete()
+          .eq('id', dailyQuestion.id)
+
+        const { data: newDq } = await supabase
+          .from('daily_questions')
+          .insert({ couple_id: couple.id, question_id: q.id, assigned_date: today })
+          .select('*, question:question_id(*)')
+          .single()
+
+        if (newDq) {
+          setDailyQuestion(newDq)
+          setMyAnswer(null)
+          setPartnerAnswer(null)
+          setState('unanswered')
+        }
+      }
+    } else {
+      // Solo: just swap to a different random question
+      const q = await getRandomQuestion(soloQuestion?.id)
+      setSoloQuestion(q)
+    }
+
+    setSkipping(false)
+  }
+
   const handleSubmit = async () => {
     if (!answerText.trim() || !dailyQuestion || !user) return
     setSubmitting(true)
@@ -124,7 +190,6 @@ export default function Questions() {
 
     if (error) { setSubmitting(false); return }
 
-    // Award hearts
     await awardHearts(user.id, HEARTS.DAILY_QUESTION, 'Answered daily question')
     await updateStreak(user.id)
     await refreshHearts()
@@ -141,7 +206,6 @@ export default function Questions() {
     setPartnerAnswer(theirs)
 
     if (theirs) {
-      // Both answered — bonus hearts
       await awardHearts(user.id, HEARTS.BOTH_ANSWERED, 'Both partners answered today')
       setHeartsEarned(HEARTS.DAILY_QUESTION + HEARTS.BOTH_ANSWERED)
       setState('revealed')
@@ -152,11 +216,8 @@ export default function Questions() {
     setSubmitting(false)
   }
 
-  const intensityColor = {
-    light: 'bg-green-100 text-green-700',
-    balanced: 'bg-blue-100 text-blue-700',
-    deep: 'bg-purple-100 text-purple-700',
-  }
+  // Determine which question to display
+  const displayQuestion = couple ? dailyQuestion?.question : soloQuestion
 
   return (
     <div className="min-h-screen bg-background px-4 pt-6 pb-6">
@@ -197,41 +258,39 @@ export default function Questions() {
             </motion.div>
           )}
 
-          {!couple && state !== 'loading' && (
-            <motion.div
-              key="no-couple"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center py-16"
-            >
-              <div className="text-5xl mb-3">💌</div>
-              <p className="font-body font-bold text-dark">No partner yet!</p>
-              <p className="text-sm text-muted font-body mt-1">
-                Share your invite code to pair up and start answering questions together.
-              </p>
-            </motion.div>
-          )}
-
-          {couple && dailyQuestion?.question && (
+          {state !== 'loading' && displayQuestion && (
             <motion.div
               key="question"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               className="flex flex-col gap-4"
             >
+              {/* No-partner notice */}
+              {!couple && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="rounded-2xl bg-primary/5 border border-primary/20 px-4 py-3 text-center"
+                >
+                  <p className="text-sm font-body text-primary/80">
+                    💌 Connect with your partner to answer questions together!
+                  </p>
+                </motion.div>
+              )}
+
               {/* Question card */}
               <div className="rounded-3xl gradient-brand p-5 shadow-soft">
                 <div className="flex items-center gap-2 mb-3">
-                  <span className="text-white/80">{dailyQuestion.question.category_emoji}</span>
+                  <span className="text-white/80">{displayQuestion.category_emoji}</span>
                   <span className="text-white/80 text-xs font-body font-semibold uppercase tracking-wider">
-                    {dailyQuestion.question.category}
+                    {displayQuestion.category}
                   </span>
-                  <span className={`ml-auto text-xs font-body font-bold px-2 py-0.5 rounded-full ${intensityColor[dailyQuestion.question.intensity]}`}>
-                    {dailyQuestion.question.intensity}
+                  <span className={`ml-auto text-xs font-body font-bold px-2 py-0.5 rounded-full ${intensityColor[displayQuestion.intensity]}`}>
+                    {displayQuestion.intensity}
                   </span>
                 </div>
                 <p className="font-body font-bold text-white text-lg leading-snug">
-                  "{dailyQuestion.question.text}"
+                  "{displayQuestion.text}"
                 </p>
               </div>
 
@@ -258,21 +317,39 @@ export default function Questions() {
                 >
                   <Textarea
                     label="Your answer"
-                    placeholder="Take your time… there's no wrong answer 💭"
+                    placeholder={couple ? "Take your time… there's no wrong answer 💭" : "Pair up to answer together!"}
                     rows={4}
                     value={answerText}
                     onChange={e => setAnswerText(e.target.value)}
+                    disabled={!couple}
                   />
-                  <Button
-                    size="lg"
-                    fullWidth
-                    variant="gradient"
-                    loading={submitting}
-                    onClick={handleSubmit}
-                    disabled={!answerText.trim()}
-                  >
-                    Lock In My Answer 🔒
-                  </Button>
+                  <div className="flex gap-3">
+                    <Button
+                      size="lg"
+                      fullWidth
+                      variant="outline"
+                      loading={skipping}
+                      onClick={handleSkip}
+                      className="text-muted border-surface"
+                    >
+                      Skip ⏭
+                    </Button>
+                    <Button
+                      size="lg"
+                      fullWidth
+                      variant="gradient"
+                      loading={submitting}
+                      onClick={handleSubmit}
+                      disabled={!answerText.trim() || !couple}
+                    >
+                      Lock In 🔒
+                    </Button>
+                  </div>
+                  {!couple && (
+                    <p className="text-center text-xs text-muted font-body">
+                      You can skip to preview more questions. Answering requires a partner!
+                    </p>
+                  )}
                 </motion.div>
               )}
 
@@ -322,7 +399,6 @@ export default function Questions() {
                     <p className="font-body font-bold text-dark text-sm">Both answered! Here's what you said:</p>
                   </div>
 
-                  {/* My answer */}
                   <motion.div
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -334,7 +410,6 @@ export default function Questions() {
                     </Card>
                   </motion.div>
 
-                  {/* Partner answer */}
                   <motion.div
                     initial={{ opacity: 0, x: 20 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -369,7 +444,15 @@ export default function Questions() {
           animate={{ opacity: 1 }}
           className="flex flex-col gap-3"
         >
-          {history.length === 0 ? (
+          {!couple ? (
+            <div className="text-center py-16">
+              <div className="text-5xl mb-3">📚</div>
+              <p className="font-body font-bold text-dark">No history yet</p>
+              <p className="text-sm text-muted font-body mt-1">
+                Connect with your partner to start building your question history!
+              </p>
+            </div>
+          ) : history.length === 0 ? (
             <div className="text-center py-16">
               <div className="text-5xl mb-3">📚</div>
               <p className="font-body font-bold text-dark">No history yet</p>
@@ -379,35 +462,69 @@ export default function Questions() {
             </div>
           ) : (
             history.map(({ dq, myAnswer: ma, partnerAnswer: pa }) => (
-              <Card key={dq.id} padding="md" animate>
-                <div className="flex items-start gap-2 mb-2">
-                  <span className="text-base">{dq.question?.category_emoji}</span>
-                  <div className="flex-1">
-                    <p className="text-xs text-muted font-body">{format(parseISO(dq.assigned_date), 'MMM d, yyyy')}</p>
-                    <p className="font-body font-semibold text-dark text-sm mt-0.5 leading-snug">
-                      {dq.question?.text}
-                    </p>
+              <motion.div
+                key={dq.id}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card padding="md">
+                  {/* Header: date + intensity + category */}
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-base">{dq.question?.category_emoji}</span>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs text-muted font-body">{format(parseISO(dq.assigned_date), 'MMM d, yyyy')}</p>
+                        {dq.question?.intensity && (
+                          <span className={`text-[10px] font-body font-bold px-1.5 py-0.5 rounded-full ${intensityColor[dq.question.intensity]}`}>
+                            {dq.question.intensity}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      <span className={`text-xs px-1.5 py-0.5 rounded-lg font-body font-bold ${ma ? 'bg-primary/10 text-primary' : 'bg-surface text-muted'}`}>
+                        {ma ? 'You ✓' : 'You –'}
+                      </span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded-lg font-body font-bold ${pa ? 'bg-secondary/10 text-secondary' : 'bg-surface text-muted'}`}>
+                        {pa ? `${partnerName} ✓` : `${partnerName} –`}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex gap-1">
-                    <span className={`text-xs px-1.5 py-0.5 rounded-lg font-body font-bold ${ma ? 'bg-primary/10 text-primary' : 'bg-surface text-muted'}`}>
-                      {ma ? 'You ✓' : 'You –'}
-                    </span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded-lg font-body font-bold ${pa ? 'bg-secondary/10 text-secondary' : 'bg-surface text-muted'}`}>
-                      {pa ? `${partnerName} ✓` : `${partnerName} –`}
-                    </span>
-                  </div>
-                </div>
-                {ma && pa && (
-                  <div className="flex flex-col gap-1 mt-2 pt-2 border-t border-surface">
-                    <p className="text-xs text-dark font-body line-clamp-1">
-                      <span className="font-bold text-primary">You:</span> "{ma.answer}"
-                    </p>
-                    <p className="text-xs text-dark font-body line-clamp-1">
-                      <span className="font-bold text-secondary">{partnerName}:</span> "{pa.answer}"
-                    </p>
-                  </div>
-                )}
-              </Card>
+
+                  {/* Question text */}
+                  <p className="font-body font-semibold text-dark text-sm leading-snug mb-3">
+                    {dq.question?.text}
+                  </p>
+
+                  {/* Answers */}
+                  {(ma || pa) && (
+                    <div className="flex flex-col gap-2 pt-2 border-t border-surface">
+                      {ma && (
+                        <div className="bg-primary/5 rounded-xl p-3">
+                          <p className="text-[11px] font-body font-bold text-primary mb-1">You answered:</p>
+                          <p className="text-xs text-dark font-body leading-relaxed">"{ma.answer}"</p>
+                        </div>
+                      )}
+                      {pa && (
+                        <div className="bg-secondary/5 rounded-xl p-3">
+                          <p className="text-[11px] font-body font-bold text-secondary mb-1">{partnerName} answered:</p>
+                          <p className="text-xs text-dark font-body leading-relaxed">"{pa.answer}"</p>
+                        </div>
+                      )}
+                      {ma && !pa && (
+                        <div className="bg-surface rounded-xl p-3">
+                          <p className="text-[11px] font-body text-muted italic">Waiting for {partnerName}'s answer…</p>
+                        </div>
+                      )}
+                      {!ma && pa && (
+                        <div className="bg-surface rounded-xl p-3">
+                          <p className="text-[11px] font-body text-muted italic">You didn't answer this one.</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              </motion.div>
             ))
           )}
         </motion.div>

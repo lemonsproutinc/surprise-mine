@@ -1,15 +1,28 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { RELATIONSHIP_STAGES } from '../types'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
+import { Input } from '../components/ui/Input'
 import { format, parseISO } from 'date-fns'
 
 export default function Profile() {
-  const { profile, partnerProfile, couple, totalHearts, currentStreak, signOut } = useAuth()
+  const { user, profile, partnerProfile, couple, totalHearts, currentStreak, signOut, linkPartner, refreshProfile } = useAuth()
   const [copied, setCopied] = useState(false)
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
+
+  // Partner code state
+  const [partnerCodeInput, setPartnerCodeInput] = useState('')
+  const [linking, setLinking] = useState(false)
+  const [linkError, setLinkError] = useState('')
+  const [linkSuccess, setLinkSuccess] = useState(false)
+
+  // Anniversary date modal state
+  const [showDateModal, setShowDateModal] = useState(false)
+  const [dateInput, setDateInput] = useState(profile?.relationship_start_date ?? '')
+  const [savingDate, setSavingDate] = useState(false)
 
   const handleCopyCode = () => {
     if (profile?.invite_code) {
@@ -17,6 +30,31 @@ export default function Profile() {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     }
+  }
+
+  const handleConnect = async () => {
+    if (!partnerCodeInput.trim()) return
+    setLinking(true)
+    setLinkError('')
+    const { error } = await linkPartner(partnerCodeInput)
+    if (error) {
+      setLinkError(error)
+    } else {
+      setLinkSuccess(true)
+    }
+    setLinking(false)
+  }
+
+  const handleSaveDate = async () => {
+    if (!dateInput || !user) return
+    setSavingDate(true)
+    await supabase
+      .from('profiles')
+      .update({ relationship_start_date: dateInput })
+      .eq('id', user.id)
+    await refreshProfile()
+    setSavingDate(false)
+    setShowDateModal(false)
   }
 
   const stageInfo = RELATIONSHIP_STAGES.find(s => s.value === profile?.relationship_stage)
@@ -81,11 +119,24 @@ export default function Profile() {
               </p>
             </div>
           </div>
-          {couple && (
-            <p className="text-center text-white/70 text-xs font-body">
-              Together since {format(parseISO(couple.created_at), 'MMMM d, yyyy')}
+
+          {/* Together since / anniversary */}
+          <div className="flex items-center justify-center gap-2">
+            <p className="text-center text-white/80 text-xs font-body">
+              {profile?.relationship_start_date
+                ? `Together since ${format(parseISO(profile.relationship_start_date), 'MMMM d, yyyy')}`
+                : 'Set your anniversary'}
             </p>
-          )}
+            <button
+              onClick={() => {
+                setDateInput(profile?.relationship_start_date ?? '')
+                setShowDateModal(true)
+              }}
+              className="text-[10px] bg-white/20 hover:bg-white/30 text-white font-body font-bold px-2 py-0.5 rounded-full transition-colors"
+            >
+              Update
+            </button>
+          </div>
         </div>
       </motion.div>
 
@@ -137,21 +188,24 @@ export default function Profile() {
         </Card>
       </motion.div>
 
-      {/* Invite code (only if no partner yet) */}
-      {!couple && profile?.invite_code && (
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-4"
-        >
-          <Card className="border-2 border-dashed border-primary/40">
-            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">
-              Your Invite Code
-            </p>
-            <div className="flex items-center justify-between gap-3">
+      {/* Partner code section */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.2 }}
+        className="mb-4"
+      >
+        {!couple ? (
+          /* Unpaired — prominent card */
+          <Card className="border-2 border-primary/30">
+            <p className="font-display text-base text-dark mb-1">Connect with your partner 💌</p>
+            <p className="text-xs text-muted font-body mb-4">Share your code or enter theirs to get started.</p>
+
+            {/* Your invite code */}
+            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">Your Invite Code</p>
+            <div className="flex items-center justify-between gap-3 mb-4 bg-surface rounded-2xl px-4 py-3">
               <span className="font-accent text-2xl font-bold text-dark tracking-widest">
-                {profile.invite_code}
+                {profile?.invite_code ?? '—'}
               </span>
               <motion.button
                 whileTap={{ scale: 0.95 }}
@@ -161,12 +215,71 @@ export default function Profile() {
                 {copied ? '✅ Copied!' : '📋 Copy'}
               </motion.button>
             </div>
-            <p className="text-xs text-muted font-body mt-1">
-              Share this with your partner so they can join!
-            </p>
+
+            {/* Enter partner code */}
+            <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-2">Have their code?</p>
+            {linkSuccess ? (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="rounded-2xl bg-success/10 border border-success/30 p-3 text-center"
+              >
+                <p className="font-body font-bold text-success text-sm">🎉 Connected! Refreshing…</p>
+              </motion.div>
+            ) : (
+              <>
+                <div className="flex gap-2">
+                  <div className="flex-1">
+                    <Input
+                      placeholder="e.g. LOVE-7X3K"
+                      value={partnerCodeInput}
+                      onChange={e => { setPartnerCodeInput(e.target.value.toUpperCase()); setLinkError('') }}
+                    />
+                  </div>
+                  <Button
+                    variant="gradient"
+                    size="md"
+                    loading={linking}
+                    disabled={!partnerCodeInput.trim()}
+                    onClick={handleConnect}
+                    className="self-end"
+                  >
+                    Connect
+                  </Button>
+                </div>
+                {linkError && (
+                  <p className="text-xs text-red-500 font-body mt-2">{linkError}</p>
+                )}
+              </>
+            )}
           </Card>
-        </motion.div>
-      )}
+        ) : (
+          /* Paired — smaller informational card */
+          <Card className="border border-surface">
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-xl">💑</span>
+              <p className="font-body font-bold text-dark text-sm">
+                You've partnered with {partnerProfile?.name ?? 'your partner'}
+              </p>
+            </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted font-body">Your invite code</p>
+                <span className="font-accent text-sm font-bold text-dark tracking-widest">
+                  {profile?.invite_code ?? '—'}
+                </span>
+              </div>
+              <motion.button
+                whileTap={{ scale: 0.95 }}
+                onClick={handleCopyCode}
+                className="bg-surface rounded-xl px-3 py-1.5 font-body font-bold text-muted text-xs"
+              >
+                {copied ? '✅ Copied' : '📋 Copy'}
+              </motion.button>
+            </div>
+          </Card>
+        )}
+      </motion.div>
 
       {/* Hearts earning guide */}
       <motion.div
@@ -204,20 +317,11 @@ export default function Profile() {
       >
         <p className="text-xs font-body font-bold text-muted uppercase tracking-wider mb-3">Account</p>
         <Card padding="md">
-          <div className="flex items-center gap-3 py-2 border-b border-surface">
+          <div className="flex items-center gap-3 py-2">
             <span className="text-xl">📧</span>
             <div>
               <p className="text-xs text-muted font-body">Email</p>
               <p className="font-body font-semibold text-dark text-sm">{profile?.email}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 py-2">
-            <span className="text-xl">📅</span>
-            <div>
-              <p className="text-xs text-muted font-body">Member since</p>
-              <p className="font-body font-semibold text-dark text-sm">
-                {profile?.created_at ? format(parseISO(profile.created_at), 'MMMM d, yyyy') : '—'}
-              </p>
             </div>
           </div>
         </Card>
@@ -275,6 +379,56 @@ export default function Profile() {
                   className="bg-red-400"
                 >
                   Sign Out
+                </Button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Anniversary date modal */}
+      <AnimatePresence>
+        {showDateModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-dark/60 backdrop-blur-sm z-50 flex items-center justify-center px-6"
+            onClick={e => { if (e.target === e.currentTarget) setShowDateModal(false) }}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-medium"
+            >
+              <div className="text-center mb-5">
+                <div className="text-4xl mb-2">📅</div>
+                <h3 className="font-display text-xl text-dark">When did you two start?</h3>
+                <p className="text-sm text-muted font-body mt-1">Set your anniversary or relationship start date.</p>
+              </div>
+              <Input
+                type="date"
+                value={dateInput}
+                onChange={e => setDateInput(e.target.value)}
+                className="mb-4"
+              />
+              <div className="flex gap-3">
+                <Button
+                  fullWidth
+                  variant="ghost"
+                  onClick={() => setShowDateModal(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  fullWidth
+                  variant="gradient"
+                  loading={savingDate}
+                  disabled={!dateInput}
+                  onClick={handleSaveDate}
+                >
+                  Save 💕
                 </Button>
               </div>
             </motion.div>

@@ -14,6 +14,7 @@ import Preferences from './screens/onboarding/Preferences'
 import Home from './screens/Home'
 import Questions from './screens/Questions'
 import Gifts from './screens/Gifts'
+import GiftView from './screens/GiftView'
 import Milestones from './screens/Milestones'
 import Profile from './screens/Profile'
 
@@ -64,6 +65,7 @@ function AppRoutes() {
         <Route path="/home" element={<Home />} />
         <Route path="/questions" element={<Questions />} />
         <Route path="/gifts" element={<Gifts />} />
+        <Route path="/gifts/view/:id" element={<GiftView />} />
         <Route path="/milestones" element={<Milestones />} />
         <Route path="/profile" element={<Profile />} />
       </Route>

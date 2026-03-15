@@ -1,5 +1,6 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { Gift, GiftType } from '../types'
@@ -109,7 +110,7 @@ function GiftAnimation({ gift, onClose }: { gift: Gift; onClose: () => void }) {
           transition={{ duration: 1 }}
           className="text-[80px] select-none"
         >
-          {stage === 'open' ? '🥠' : '🥠'}
+          🥠
         </motion.div>
         {stage === 'opening' && (
           <motion.div
@@ -182,11 +183,12 @@ function GiftAnimation({ gift, onClose }: { gift: Gift; onClose: () => void }) {
 }
 
 export default function Gifts() {
+  const navigate = useNavigate()
   const { user, couple, partnerProfile, refreshHearts } = useAuth()
 
   const [tab, setTab] = useState<'send' | 'inbox'>('inbox')
-  const [inbox, setInbox] = useState<Gift[]>([])
-  const [sent, setSent] = useState<Gift[]>([])
+  // allGifts holds both sent + received for the inbox
+  const [allGifts, setAllGifts] = useState<(Gift & { _direction: 'sent' | 'received' })[]>([])
   const [loading, setLoading] = useState(true)
   const [openingGift, setOpeningGift] = useState<Gift | null>(null)
 
@@ -195,6 +197,9 @@ export default function Gifts() {
   const [message, setMessage] = useState('')
   const [sending, setSending] = useState(false)
   const [sentSuccess, setSentSuccess] = useState(false)
+
+  // Copy link feedback
+  const [copiedGiftId, setCopiedGiftId] = useState<string | null>(null)
 
   const partnerName = partnerProfile?.name?.split(' ')[0] ?? 'your partner'
 
@@ -207,7 +212,7 @@ export default function Gifts() {
     if (!user) return
     setLoading(true)
 
-    const { data: inboxData } = await supabase
+    const { data: receivedData } = await supabase
       .from('gifts')
       .select('*')
       .eq('to_user_id', user.id)
@@ -219,8 +224,15 @@ export default function Gifts() {
       .eq('from_user_id', user.id)
       .order('created_at', { ascending: false })
 
-    setInbox(inboxData ?? [])
-    setSent(sentData ?? [])
+    const received = (receivedData ?? []).map(g => ({ ...g, _direction: 'received' as const }))
+    const sent = (sentData ?? []).map(g => ({ ...g, _direction: 'sent' as const }))
+
+    // Merge and sort by created_at descending
+    const merged = [...received, ...sent].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+
+    setAllGifts(merged)
     setLoading(false)
   }
 
@@ -249,15 +261,20 @@ export default function Gifts() {
   }
 
   const handleOpenGift = async (gift: Gift) => {
-    if (gift.opened) return
+    if (gift.opened || gift.from_user_id === user?.id) return
     setOpeningGift(gift)
-
-    // Mark as opened
     await supabase.from('gifts').update({ opened: true }).eq('id', gift.id)
-    setInbox(prev => prev.map(g => g.id === gift.id ? { ...g, opened: true } : g))
+    setAllGifts(prev => prev.map(g => g.id === gift.id ? { ...g, opened: true } : g))
   }
 
-  const unopenedCount = inbox.filter(g => !g.opened).length
+  const handleCopyGiftLink = (giftId: string) => {
+    const url = `${window.location.origin}/gifts/view/${giftId}`
+    navigator.clipboard.writeText(url)
+    setCopiedGiftId(giftId)
+    setTimeout(() => setCopiedGiftId(null), 2000)
+  }
+
+  const unopenedCount = allGifts.filter(g => !g.opened && g._direction === 'received').length
 
   return (
     <div className="min-h-screen bg-background px-4 pt-6 pb-6">
@@ -294,41 +311,52 @@ export default function Gifts() {
               <p className="font-body font-bold text-dark">Pair up first!</p>
               <p className="text-sm text-muted font-body mt-1">You need a partner to exchange gifts.</p>
             </div>
-          ) : inbox.length === 0 ? (
+          ) : allGifts.length === 0 ? (
             <div className="text-center py-16">
               <div className="text-5xl mb-3">🎁</div>
               <p className="font-body font-bold text-dark">No gifts yet!</p>
               <p className="text-sm text-muted font-body mt-1">
-                Hint to {partnerName} that you'd love a surprise 😉
+                Send {partnerName} something sweet to get started 😉
               </p>
             </div>
           ) : (
-            inbox.map(gift => {
+            allGifts.map(gift => {
               const giftInfo = GIFT_TYPES.find(g => g.type === gift.gift_type)
+              const isSentByMe = gift._direction === 'sent'
+              const canOpen = !gift.opened && !isSentByMe
+
               return (
                 <motion.div
-                  key={gift.id}
+                  key={`${gift.id}-${gift._direction}`}
                   layout
                   initial={{ opacity: 0, y: 16 }}
                   animate={{ opacity: 1, y: 0 }}
                 >
                   <Card
-                    onClick={!gift.opened ? () => handleOpenGift(gift) : undefined}
-                    className={!gift.opened ? 'border-2 border-primary/30' : 'opacity-75'}
+                    onClick={canOpen ? () => handleOpenGift(gift) : undefined}
+                    className={`${canOpen ? 'border-2 border-primary/30 cursor-pointer' : ''} ${gift.opened || isSentByMe ? 'opacity-80' : ''}`}
                   >
                     <div className="flex items-center gap-3">
                       <motion.span
-                        animate={!gift.opened ? { scale: [1, 1.1, 1] } : {}}
+                        animate={canOpen ? { scale: [1, 1.1, 1] } : {}}
                         transition={{ duration: 2, repeat: Infinity }}
-                        className="text-3xl"
+                        className="text-3xl flex-shrink-0"
                       >
                         {giftInfo?.emoji}
                       </motion.span>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="font-body font-bold text-dark text-sm">{giftInfo?.label}</p>
-                          {!gift.opened && (
-                            <span className="bg-primary/10 text-primary text-[10px] font-body font-bold px-2 py-0.5 rounded-full">
+                          {/* Direction tag */}
+                          <span className={`text-[10px] font-body font-bold px-2 py-0.5 rounded-full ${
+                            isSentByMe
+                              ? 'bg-secondary/10 text-secondary'
+                              : 'bg-primary/10 text-primary'
+                          }`}>
+                            {isSentByMe ? 'Sent by you' : `Sent by ${partnerName}`}
+                          </span>
+                          {canOpen && (
+                            <span className="bg-tertiary/20 text-tertiary text-[10px] font-body font-bold px-2 py-0.5 rounded-full">
                               NEW
                             </span>
                           )}
@@ -336,16 +364,33 @@ export default function Gifts() {
                         <p className="text-xs text-muted font-body">
                           {format(parseISO(gift.created_at), 'MMM d, h:mm a')}
                         </p>
-                        {gift.opened && (
-                          <p className="text-xs text-dark font-body mt-1 line-clamp-1 italic">
+                        {(gift.opened || isSentByMe) && (
+                          <p className="text-xs text-dark font-body mt-1 line-clamp-2 italic">
                             "{gift.message}"
                           </p>
                         )}
                       </div>
-                      {!gift.opened && (
-                        <span className="text-primary font-body font-bold text-sm">Tap to open →</span>
-                      )}
-                      {gift.opened && <span className="text-muted text-sm">✓</span>}
+                      <div className="flex flex-col items-end gap-1">
+                        {canOpen && (
+                          <span className="text-primary font-body font-bold text-xs">Tap →</span>
+                        )}
+                        {gift.opened && !canOpen && <span className="text-success text-sm">✓</span>}
+                        {/* Copy link button */}
+                        <button
+                          onClick={e => { e.stopPropagation(); handleCopyGiftLink(gift.id) }}
+                          className="text-[10px] text-muted hover:text-primary font-body font-bold mt-1 transition-colors"
+                          title="Copy gift link"
+                        >
+                          {copiedGiftId === gift.id ? '✅ Copied' : '🔗 Link'}
+                        </button>
+                        {/* View gift */}
+                        <button
+                          onClick={e => { e.stopPropagation(); navigate(`/gifts/view/${gift.id}`) }}
+                          className="text-[10px] text-muted hover:text-primary font-body transition-colors"
+                        >
+                          View
+                        </button>
+                      </div>
                     </div>
                   </Card>
                 </motion.div>
@@ -361,6 +406,9 @@ export default function Gifts() {
             <div className="text-center py-16">
               <div className="text-5xl mb-3">💌</div>
               <p className="font-body font-bold text-dark">Pair up first!</p>
+              <p className="text-sm text-muted font-body mt-1">
+                Head to your profile to connect with your partner.
+              </p>
             </div>
           ) : (
             <>

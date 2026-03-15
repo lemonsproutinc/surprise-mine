@@ -21,6 +21,7 @@ interface AuthContextType {
   ) => Promise<{ error: string | null }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
+  linkPartner: (code: string) => Promise<{ error: string | null }>
   refreshProfile: () => Promise<void>
   refreshHearts: () => Promise<void>
 }
@@ -158,6 +159,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
   }
 
+  const linkPartner = async (code: string): Promise<{ error: string | null }> => {
+    if (!user) return { error: 'Not logged in.' }
+    const trimmedCode = code.toUpperCase().trim()
+
+    const { data: codeData, error: codeError } = await supabase
+      .from('invite_codes')
+      .select('*, creator:creator_id(name)')
+      .eq('code', trimmedCode)
+      .eq('used', false)
+      .single()
+
+    if (codeError || !codeData) return { error: 'Invalid or already used invite code.' }
+    if (codeData.creator_id === user.id) return { error: 'You cannot connect with yourself!' }
+
+    const { data: coupleData, error: coupleError } = await supabase
+      .from('couples')
+      .insert({ user1_id: codeData.creator_id, user2_id: user.id })
+      .select()
+      .single()
+
+    if (coupleError || !coupleData) return { error: 'Could not create couple. Please try again.' }
+
+    await supabase.from('profiles').update({ couple_id: coupleData.id }).eq('id', user.id)
+    await supabase.from('profiles').update({ couple_id: coupleData.id }).eq('id', codeData.creator_id)
+    await supabase.from('invite_codes').update({ used: true, used_by: user.id }).eq('id', codeData.id)
+
+    await loadProfile(user.id)
+    return { error: null }
+  }
+
   const refreshProfile = async () => {
     if (user) await loadProfile(user.id)
   }
@@ -182,6 +213,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUp,
         signIn,
         signOut,
+        linkPartner,
         refreshProfile,
         refreshHearts,
       }}
